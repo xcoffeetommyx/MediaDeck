@@ -16,6 +16,7 @@ Start MediaDeck
 ## Profile System
 
 Each profile owns:
+
 - Firefox profile
 - YouTube login
 - Cookies
@@ -35,6 +36,7 @@ Each profile owns:
 ## Responsibilities
 
 MediaDeck:
+
 - Profiles
 - Launching Firefox
 - Settings
@@ -42,6 +44,7 @@ MediaDeck:
 - Controller configuration
 
 YouTube:
+
 - Search
 - History
 - Recommendations

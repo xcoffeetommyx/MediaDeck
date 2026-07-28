@@ -1,5 +1,6 @@
 # Architecture
 
+```text
 MediaDeck
 ├── Frontend
 ├── Backend
@@ -9,7 +10,8 @@ MediaDeck
 ├── Update Manager
 ├── Controller Manager
 └── Firefox Engine
-      └── YouTube
+    └── YouTube
+```
 
 The architecture must support additional applications later without redesign.
 Treat YouTube as the first application implementation.

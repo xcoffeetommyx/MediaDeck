@@ -1,0 +1,32 @@
+{
+  "name": "@mediadeck/api",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./dist/app.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "dev": "tsx watch --clear-screen=false --conditions=development src/index.ts",
+    "start": "node dist/index.js",
+    "test": "vitest run",
+    "test:coverage": "vitest run --coverage",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@fastify/static": "10.1.2",
+    "@mediadeck/config": "workspace:*",
+    "@mediadeck/contracts": "workspace:*",
+    "fastify": "5.10.0"
+  },
+  "devDependencies": {
+    "@types/node": "26.1.2",
+    "@vitest/coverage-v8": "4.1.10",
+    "tsx": "4.23.1",
+    "vitest": "4.1.10"
+  }
+}

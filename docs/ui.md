@@ -17,6 +17,7 @@ Settings
 Updates
 
 Navigation:
+
 - D-Pad / Left Stick
 - A = Select
 - B = Back

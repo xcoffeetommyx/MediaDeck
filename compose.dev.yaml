@@ -1,0 +1,38 @@
+name: mediadeck-dev
+
+services:
+  api:
+    build:
+      context: .
+      target: development
+    command: pnpm --filter @mediadeck/api dev
+    environment:
+      APP_VERSION: 0.1.0-dev
+      DATA_DIR: /data
+      HOST: 0.0.0.0
+      LOG_LEVEL: debug
+      NODE_ENV: development
+      PORT: 3000
+    init: true
+    volumes:
+      - ./apps/api/src:/workspace/apps/api/src
+      - ./packages/config/src:/workspace/packages/config/src
+      - ./packages/contracts/src:/workspace/packages/contracts/src
+      - ./.data:/data
+
+  web:
+    build:
+      context: .
+      target: development
+    command: pnpm --filter @mediadeck/web dev
+    depends_on:
+      - api
+    environment:
+      API_PROXY_TARGET: http://api:3000
+    init: true
+    ports:
+      - '127.0.0.1:5173:5173'
+    volumes:
+      - ./apps/web/src:/workspace/apps/web/src
+      - ./apps/web/index.html:/workspace/apps/web/index.html
+      - ./packages/contracts/src:/workspace/packages/contracts/src

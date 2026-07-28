@@ -1,0 +1,12 @@
+packages:
+  - apps/*
+  - packages/*
+
+allowBuilds:
+  esbuild: true
+
+engineStrict: true
+injectWorkspacePackages: true
+nodeVersion: 24.14.0
+preferWorkspacePackages: true
+savePrefix: ''

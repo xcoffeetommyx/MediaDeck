@@ -1,6 +1,7 @@
 # Roadmap
 
 ## v1.0
+
 - Docker Compose
 - HTTPS over Tailscale
 - Firefox kiosk
@@ -14,7 +15,9 @@
 - Crash recovery
 
 ## v1.1
+
 Firefox add-on management:
+
 - Install .xpi
 - Enable/Disable
 - Remove
@@ -23,11 +26,13 @@ Firefox add-on management:
 - Optional watched add-ons folder
 
 ## v1.2
+
 - Parent controls
 - Child profiles
 - PIN protection
 
 ## Future
+
 - Multiple media apps
 - Themes
 - Backup/restore UI
