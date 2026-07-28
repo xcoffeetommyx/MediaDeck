@@ -1,7 +1,8 @@
 # Deployment
 
-Stage 1 provides the production container and storage foundation. Firefox
-streaming is introduced in Stage 2.
+Stage 2 provides the production application foundation and a pinned
+Firefox/Selkies browser-worker baseline. Stage 3 will replace the single
+long-lived spike worker with profile-aware session lifecycle management.
 
 ## Start MediaDeck
 
@@ -25,6 +26,28 @@ The health endpoints are:
 
 - `GET /healthz`
 - `GET /api/v1/health`
+- `GET /api/v1/browser-worker/health`
+
+## Start the Browser Worker
+
+Start the app and Stage 2 worker together:
+
+```shell
+docker compose -f compose.yaml -f compose.browser-spike.yaml up --build -d
+```
+
+The worker:
+
+- runs Firefox 153 in the pinned LinuxServer Selkies image
+- uses x264 software encoding by default
+- persists its Stage 2 Firefox state in `mediadeck-browser-spike`
+- disables the microphone, clipboard, file transfer, command execution,
+  sharing, and the image's nested Docker daemon
+- binds its diagnostic ports to loopback only
+
+The worker's loopback endpoint is intentionally not a standalone authentication
+boundary. Publish the service only through the trusted HTTPS path. Stage 3 will
+replace direct worker access with session-aware routing and authorization.
 
 ## Tailscale Serve
 
@@ -51,6 +74,11 @@ Common settings:
 | `APP_VERSION`    | `0.1.0` | Version reported by health/config endpoints              |
 | `LOG_LEVEL`      | `info`  | Structured application log level                         |
 | `TRUST_PROXY`    | `false` | Fastify proxy trust; enable only for a verified topology |
+
+Browser-worker settings are listed in `.env.example`. Keep
+`BROWSER_VIDEO_BITRATE` and `BROWSER_FRAMERATE` conservative on small hosts.
+The optional `compose.browser-gpu.yaml` override is Linux-only and currently
+targets an Intel/AMD render node; NVIDIA requires a host-specific design.
 
 ## Persistent Data
 

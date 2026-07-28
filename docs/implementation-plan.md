@@ -36,13 +36,15 @@ Validation:
 
 ## Stage 2: Browser Transport Spike
 
+Status: Complete with documented hardware validation follow-ups (2026-07-28)
+
 Scope:
 
 - Headless Firefox worker
-- Selkies WebRTC display and audio transport
+- Selkies WebSocket display and audio transport
 - Software encoding baseline
-- Optional hardware-acceleration experiments
-- Mouse, touch, and keyboard input
+- Optional hardware-acceleration configuration
+- Mouse and keyboard input
 - Session reconnection
 - YouTube codec and protected-media investigation
 
@@ -57,6 +59,10 @@ Validation:
 
 This stage is a technical gate. If Selkies is unsuitable, evaluate KasmVNC
 behind the same session interface before proceeding.
+
+Selkies passed the gate. Touch hardware, Widevine protected playback, and the
+optional Linux GPU override remain manual release-hardware checks; see
+[Stage 2 Browser Transport](stage-2-browser-transport.md).
 
 ## Stage 3: Profiles and Session Lifecycle
 

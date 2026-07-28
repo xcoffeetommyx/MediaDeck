@@ -38,6 +38,37 @@ docker compose -f compose.dev.yaml up --build
 Open `http://localhost:5173`. Source directories are mounted for live reload.
 Rebuild the images after changing dependencies or build configuration.
 
+## Browser Transport Spike
+
+Run the production application and the pinned Firefox/Selkies worker:
+
+```shell
+docker compose -f compose.yaml -f compose.browser-spike.yaml up --build -d
+```
+
+The MediaDeck application is available at `http://127.0.0.1:8080`. The spike
+exposes the browser transport at `http://127.0.0.1:3002` and its self-signed
+HTTPS endpoint at `https://127.0.0.1:3003`. These bindings are deliberately
+loopback-only.
+
+Check the transport-neutral worker status:
+
+```shell
+curl http://127.0.0.1:8080/api/v1/browser-worker/health
+```
+
+Override `BROWSER_START_URL`, ports, and encoding settings in `.env`. The
+default software encoder is the supported baseline.
+
+On a Linux Intel/AMD host, the optional VA-API experiment can be added with:
+
+```shell
+docker compose -f compose.yaml -f compose.browser-spike.yaml -f compose.browser-gpu.yaml up --build -d
+```
+
+Do not use the GPU override until `BROWSER_DRI_DEVICE` has been verified on the
+host.
+
 ## Quality Checks
 
 Run the complete local validation suite:

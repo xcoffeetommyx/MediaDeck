@@ -23,7 +23,7 @@ Development philosophy:
 
 ## Current Status
 
-Stage 1 establishes the production repository foundation:
+Stages 1 and 2 establish:
 
 - React, TypeScript, Vite, and Tailwind CSS frontend
 - Fastify backend
@@ -33,8 +33,11 @@ Stage 1 establishes the production repository foundation:
 - Local and Docker development
 - Hardened production container
 - Automated quality checks and CI
+- A pinned Firefox/Selkies browser worker
+- YouTube video, audio, input, and reconnect validation
+- A transport-neutral browser-worker health API
 
-Firefox streaming begins in Stage 2.
+Profile-aware browser session lifecycle begins in Stage 3.
 
 ## Quick Start
 
@@ -51,6 +54,12 @@ Run all quality gates with:
 pnpm validate
 ```
 
+Run the Stage 2 browser worker with:
+
+```shell
+docker compose -f compose.yaml -f compose.browser-spike.yaml up --build -d
+```
+
 ## Project Documents
 
 - [Product specification](docs/product-spec.md)
@@ -60,3 +69,4 @@ pnpm validate
 - [Roadmap](docs/roadmap.md)
 - [Development guide](docs/development.md)
 - [Deployment guide](docs/deployment.md)
+- [Stage 2 browser transport report](docs/stage-2-browser-transport.md)

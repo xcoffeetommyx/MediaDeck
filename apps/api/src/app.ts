@@ -2,12 +2,21 @@ import { access } from 'node:fs/promises';
 
 import fastifyStatic from '@fastify/static';
 import type { ServerConfig } from '@mediadeck/config';
-import type { HealthResponse, PublicConfigResponse } from '@mediadeck/contracts';
+import type {
+  BrowserWorkerHealthResponse,
+  HealthResponse,
+  PublicConfigResponse,
+} from '@mediadeck/contracts';
 import Fastify, { type FastifyInstance } from 'fastify';
 
+import {
+  type BrowserTransportProbe,
+  HttpBrowserTransportProbe,
+} from './browser-transport.js';
 import { ensureStorageLayout } from './storage.js';
 
 export type BuildApplicationOptions = {
+  browserTransportProbe?: BrowserTransportProbe;
   config: ServerConfig;
   logger?: boolean;
 };
@@ -22,6 +31,7 @@ async function directoryExists(path: string): Promise<boolean> {
 }
 
 export async function buildApplication({
+  browserTransportProbe,
   config,
   logger,
 }: BuildApplicationOptions): Promise<FastifyInstance> {
@@ -52,6 +62,17 @@ export async function buildApplication({
       version: config.appVersion,
     };
   });
+
+  const transportProbe =
+    browserTransportProbe ??
+    new HttpBrowserTransportProbe({
+      workerUrl: config.browserWorkerUrl,
+    });
+
+  app.get(
+    '/api/v1/browser-worker/health',
+    async (): Promise<BrowserWorkerHealthResponse> => transportProbe.check(),
+  );
 
   if (config.publicDirectory && (await directoryExists(config.publicDirectory))) {
     await app.register(fastifyStatic, {

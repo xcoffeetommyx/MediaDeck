@@ -7,8 +7,14 @@ const booleanFromEnvironment = z
   .default('false')
   .transform((value) => value === 'true');
 
+const httpUrl = z.url().refine((value) => {
+  const protocol = new URL(value).protocol;
+  return protocol === 'http:' || protocol === 'https:';
+}, 'Must use the http or https protocol');
+
 const serverEnvironmentSchema = z.object({
   APP_VERSION: z.string().min(1).default('0.1.0'),
+  BROWSER_WORKER_URL: httpUrl.optional(),
   DATA_DIR: z.string().min(1).default('./.data'),
   HOST: z.string().min(1).default('0.0.0.0'),
   LOG_LEVEL: z
@@ -22,6 +28,7 @@ const serverEnvironmentSchema = z.object({
 
 export type ServerConfig = {
   appVersion: string;
+  browserWorkerUrl?: string;
   dataDirectory: string;
   host: string;
   logLevel: z.infer<typeof serverEnvironmentSchema>['LOG_LEVEL'];
@@ -47,6 +54,9 @@ export function loadServerConfig(
 
   return {
     appVersion: parsed.APP_VERSION,
+    ...(parsed.BROWSER_WORKER_URL
+      ? { browserWorkerUrl: parsed.BROWSER_WORKER_URL }
+      : {}),
     dataDirectory: resolve(parsed.DATA_DIR),
     host: parsed.HOST,
     logLevel: parsed.LOG_LEVEL,

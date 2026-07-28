@@ -3,7 +3,11 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import type { ServerConfig } from '@mediadeck/config';
-import { healthResponseSchema, publicConfigResponseSchema } from '@mediadeck/contracts';
+import {
+  browserWorkerHealthResponseSchema,
+  healthResponseSchema,
+  publicConfigResponseSchema,
+} from '@mediadeck/contracts';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { buildApplication } from './app.js';
@@ -85,6 +89,47 @@ describe('MediaDeck API', () => {
     expect(response.json()).toMatchObject({
       error: 'Not Found',
       statusCode: 404,
+    });
+  });
+
+  it('exposes browser transport health through its neutral contract', async () => {
+    const app = await buildApplication({
+      browserTransportProbe: {
+        check: () =>
+          Promise.resolve({
+            capabilities: {
+              audio: true,
+              gamepad: true,
+              keyboard: true,
+              pointer: true,
+              reconnect: true,
+              touch: true,
+            },
+            checkedAt: '2026-07-28T12:00:00.000Z',
+            status: 'online',
+            transport: {
+              mode: 'websocket',
+              provider: 'selkies',
+            },
+          }),
+      },
+      config: createConfig(),
+      logger: false,
+    });
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/v1/browser-worker/health',
+    });
+    await app.close();
+
+    expect(response.statusCode).toBe(200);
+    expect(browserWorkerHealthResponseSchema.parse(response.json())).toMatchObject({
+      status: 'online',
+      transport: {
+        mode: 'websocket',
+        provider: 'selkies',
+      },
     });
   });
 });

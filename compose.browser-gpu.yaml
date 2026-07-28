@@ -1,0 +1,12 @@
+name: mediadeck
+
+# Linux-only Intel/AMD VA-API experiment. Apply after compose.browser-spike.yaml.
+# Device paths vary by host; this override has not been validated on Windows.
+services:
+  browser-worker:
+    devices:
+      - ${BROWSER_DRI_DEVICE:-/dev/dri/renderD128}:${BROWSER_DRI_DEVICE:-/dev/dri/renderD128}
+    environment:
+      DRI_NODE: ${BROWSER_DRI_DEVICE:-/dev/dri/renderD128}
+      DRINODE: ${BROWSER_DRI_DEVICE:-/dev/dri/renderD128}
+      SELKIES_USE_CPU: false|locked

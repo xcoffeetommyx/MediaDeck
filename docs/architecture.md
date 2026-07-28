@@ -30,12 +30,15 @@ Session Manager
 Browser Worker(s)
   - Firefox
   - Selkies
+  - WebSocket transport by default
   - Isolated profile
 ```
 
 The initial release may run only one browser worker. Browser workers are
 addressed by session ID so later releases can run separate workers for multiple
-profiles concurrently.
+profiles concurrently. The backend uses a transport-neutral browser-worker
+contract; Selkies-specific URLs and container details do not enter profile or
+application APIs.
 
 See [Architecture Decisions](architecture-decisions.md) for the accepted
 constraints and [Implementation Plan](implementation-plan.md) for delivery

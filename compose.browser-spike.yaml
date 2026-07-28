@@ -1,0 +1,56 @@
+name: mediadeck
+
+services:
+  app:
+    environment:
+      BROWSER_WORKER_URL: http://browser-worker:3000
+
+  browser-worker:
+    image: ghcr.io/linuxserver/firefox@sha256:e4b9310d76fbaef54de9b6a440113729c442125f50668ad9e9f678c0af1ae700
+    restart: unless-stopped
+    shm_size: 1gb
+    environment:
+      HARDEN_DESKTOP: 'true'
+      HARDEN_OPENBOX: 'true'
+      FIREFOX_CLI: ${BROWSER_START_URL:-https://www.youtube.com/}
+      PGID: ${PGID:-1000}
+      PIXELFLUX_WAYLAND: 'true'
+      PUID: ${PUID:-1000}
+      SELKIES_AUDIO_ENABLED: true|locked
+      SELKIES_CLIPBOARD_ENABLED: false|locked
+      SELKIES_COMMAND_ENABLED: false|locked
+      SELKIES_ENABLE_SHARING: false|locked
+      SELKIES_ENCODER: x264enc
+      # Keep upload out of Selkies' allowed list; HARDEN_DESKTOP blocks download.
+      SELKIES_FILE_TRANSFERS: download
+      SELKIES_FRAMERATE: ${BROWSER_FRAMERATE:-60}
+      SELKIES_GAMEPAD_ENABLED: true|locked
+      SELKIES_MICROPHONE_ENABLED: false|locked
+      SELKIES_UI_SHOW_LOGO: false|locked
+      SELKIES_UI_SHOW_SIDEBAR: false|locked
+      SELKIES_USE_CPU: true|locked
+      SELKIES_VIDEO_BITRATE: ${BROWSER_VIDEO_BITRATE:-12}
+      START_DOCKER: 'false'
+      TZ: ${TZ:-Etc/UTC}
+    ports:
+      - '127.0.0.1:${BROWSER_SPIKE_HTTP_PORT:-3002}:3000'
+      - '127.0.0.1:${BROWSER_SPIKE_HTTPS_PORT:-3003}:3001'
+    volumes:
+      - mediadeck-browser-spike:/config
+    healthcheck:
+      test:
+        ['CMD', 'curl', '--fail', '--silent', '--show-error', 'http://127.0.0.1:3000/']
+      interval: 15s
+      timeout: 5s
+      start_period: 45s
+      retries: 5
+    security_opt:
+      - no-new-privileges:true
+    labels:
+      io.mediadeck.browser.kind: worker
+      io.mediadeck.browser.transport: websocket
+      io.mediadeck.browser.provider: selkies
+
+volumes:
+  mediadeck-browser-spike:
+    name: mediadeck-browser-spike

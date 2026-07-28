@@ -25,26 +25,33 @@ default installation.
 
 ## 2. Remote Firefox Transport
 
-Status: Accepted, pending an implementation spike
+Status: Accepted after Stage 2 spike (2026-07-28)
 
-Selkies is the preferred remote-display transport. It provides browser-native,
-low-latency WebRTC streaming for the Firefox display and audio, with input sent
-back to the remote session.
+Selkies is the remote-display provider. MediaDeck uses Selkies' single-port
+WebSocket transport as its default because it works through an ordinary HTTPS
+reverse proxy without host networking, a TURN service, or a large UDP port
+range. WebRTC remains an optional future transport mode for installations where
+its additional networking requirements are justified.
 
-The first browser implementation milestone must prove:
+The Stage 2 browser implementation proved:
 
 - YouTube video playback in Firefox
 - Audio delivery to the client
-- Mouse, touch, and keyboard input
-- Acceptable latency with software encoding
-- Optional GPU acceleration
+- Mouse and keyboard input
+- Interactive software encoding on the development host
 - Reconnection without losing the Firefox session
-- Common YouTube codecs and protected-media behavior
+- YouTube AV1 video and Opus audio playback
+
+Touch input, Widevine playback, and Linux hardware acceleration still require
+validation on their representative hardware. They do not block the default
+software-encoded worker, but they remain explicit deployment gates before a
+general release.
 
 KasmVNC is the fallback transport if the Selkies spike uncovers an unacceptable
 compatibility, maintenance, or deployment limitation. The rest of MediaDeck
 must communicate through a transport-neutral session interface so this choice
-does not leak throughout the application.
+does not leak throughout the application. Stage 2 adds that boundary through
+the browser-worker health contract.
 
 ## 3. Session Model
 
