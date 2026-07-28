@@ -1,14 +1,19 @@
 # Deployment
 
-Stage 3 provides profile-aware Firefox worker lifecycle management on top of
-the Stage 2 transport baseline.
+The production target is a small headless Linux Docker host reachable only
+through its Tailscale tailnet. MediaDeck itself listens on loopback; Tailscale
+Serve terminates HTTPS and proxies the application and stream WebSockets.
 
 ## Start MediaDeck
 
-Build and start the production service:
+Copy the example environment, set the Docker socket group, then build and start
+the production service:
 
 ```shell
-docker compose up --build -d
+cp .env.example .env
+stat -c '%g' /var/run/docker.sock
+# Put the reported number in DOCKER_GID within .env.
+docker compose -f compose.yaml -f compose.sessions.yaml up --build -d
 ```
 
 MediaDeck listens on `127.0.0.1:8080` by default. Binding to loopback prevents
@@ -18,7 +23,7 @@ Check service status:
 
 ```shell
 docker compose ps
-docker compose logs app
+curl --fail http://127.0.0.1:8080/healthz
 ```
 
 The health endpoints are:
@@ -26,10 +31,11 @@ The health endpoints are:
 - `GET /healthz`
 - `GET /api/v1/health`
 - `GET /api/v1/browser-worker/health`
+- `GET /api/v1/operations/diagnostics`
 
 ## Start Profile-Aware Browser Workers
 
-Start MediaDeck with the Stage 3 Docker worker driver:
+The profile-aware worker driver is enabled by the production command above:
 
 ```shell
 docker compose -f compose.yaml -f compose.sessions.yaml up --build -d
@@ -50,16 +56,6 @@ to that socket is equivalent to administrative control of the Docker host.
 Keep MediaDeck private, patch it promptly, and do not expose the API outside the
 trusted Tailscale path. A dedicated least-privilege worker manager remains a
 future hardening option.
-
-On Linux, determine the Docker socket group and set it in `.env`:
-
-```shell
-stat -c '%g' /var/run/docker.sock
-```
-
-```text
-DOCKER_GID=<reported-number>
-```
 
 The Stage 2 `compose.browser-spike.yaml` override remains a diagnostic tool. Do
 not run it together with `compose.sessions.yaml`.
@@ -88,6 +84,23 @@ Applications:
 - `GET /api/v1/applications`
 - `POST /api/v1/applications/youtube/launch`
 
+Operations:
+
+- `GET /api/v1/admin/status`
+- `POST /api/v1/admin/unlock`
+- `POST /api/v1/admin/lock`
+- `PUT /api/v1/admin/pin`
+- `GET/PATCH /api/v1/settings`
+- `GET /api/v1/operations/diagnostics`
+- `GET /api/v1/operations/logs`
+- `POST /api/v1/operations/reconcile`
+- `GET/POST /api/v1/backups`
+- `DELETE /api/v1/backups/:backupId`
+- `POST /api/v1/backups/:backupId/restore`
+- `GET /api/v1/updates/status`
+- `POST /api/v1/updates/check`
+- `POST /api/v1/updates/approve`
+
 Active session streams are available beneath the session-scoped
 `/stream/<session-uuid>/` path. MediaDeck proxies both HTTP assets and WebSocket
 traffic to the isolated worker. Public responses expose the opaque session ID,
@@ -103,7 +116,22 @@ local MediaDeck service:
 tailscale serve --bg 8080
 ```
 
-Do not use Tailscale Funnel for the default private deployment.
+Confirm the active private proxy and the loopback-only Docker publication:
+
+```shell
+tailscale serve status
+ss -ltn | grep '127.0.0.1:8080'
+```
+
+The resulting `https://<machine>.<tailnet>.ts.net` URL is available to devices
+allowed by the tailnet policy. Restrict access to the intended users or device
+tags in the Tailscale policy. Do not enable Tailscale Funnel: Funnel exposes a
+service to the public internet, while Serve is tailnet-only. `TRUST_PROXY`
+remains `false` because Stage 6 does not consume proxy identity headers.
+
+Current syntax and behavior are documented in
+[Tailscale Serve](https://tailscale.com/docs/reference/tailscale-cli/serve) and
+[Tailscale Funnel](https://tailscale.com/kb/1223/funnel).
 
 ## Configuration
 
@@ -113,12 +141,14 @@ error.
 
 Common settings:
 
-| Variable         | Default | Purpose                                                  |
-| ---------------- | ------- | -------------------------------------------------------- |
-| `MEDIADECK_PORT` | `8080`  | Loopback port exposed by Compose                         |
-| `APP_VERSION`    | `0.1.0` | Version reported by health/config endpoints              |
-| `LOG_LEVEL`      | `info`  | Structured application log level                         |
-| `TRUST_PROXY`    | `false` | Fastify proxy trust; enable only for a verified topology |
+| Variable                        | Default           | Purpose                                                  |
+| ------------------------------- | ----------------- | -------------------------------------------------------- |
+| `MEDIADECK_PORT`                | `8080`            | Loopback port exposed by Compose                         |
+| `MEDIADECK_IMAGE`               | `mediadeck:0.1.0` | Local or digest-pinned release image                     |
+| `MEDIADECK_UPDATE_MANIFEST_URL` | unset             | HTTPS release manifest; empty disables update checks     |
+| `APP_VERSION`                   | `0.1.0`           | Version reported by health/config endpoints              |
+| `LOG_LEVEL`                     | `info`            | Structured application log level                         |
+| `TRUST_PROXY`                   | `false`           | Fastify proxy trust; enable only for a verified topology |
 
 Browser-worker settings are listed in `.env.example`. Keep
 `BROWSER_VIDEO_BITRATE` and `BROWSER_FRAMERATE` conservative on small hosts.
@@ -136,12 +166,18 @@ The named Docker volume `mediadeck-data` is mounted at `/data`:
 ```text
 /data/
   backups/
+    <backup-id>/
+      manifest.json
+      database/mediadeck.sqlite
+      profiles/
   database/
     mediadeck.sqlite
   profiles/
     <profile-uuid>/
       firefox/
   runtime/
+    approved-update.json
+    restore-request.json
     guests/
       <session-uuid>/
         firefox/
@@ -152,6 +188,95 @@ persistent Firefox profile into more than one future browser worker.
 
 The container runs as an unprivileged user with a read-only root filesystem.
 Only `/data` and the temporary `/tmp` filesystem are writable.
+
+## Administrator Operations
+
+Settings can enable a 4–12 digit administrator PIN. MediaDeck stores only a
+randomly salted scrypt hash. Successful unlocks issue a memory-only bearer
+token that expires after 15 minutes; five incorrect attempts from one client
+are paused for 15 minutes.
+
+When the PIN is enabled, sensitive settings, profile deletion, backup changes,
+restore scheduling, recovery reconciliation, update checks, and update
+approval require an unlocked administrator session. Normal profile selection
+and streaming do not. If no PIN is configured, tailnet access remains the
+security boundary.
+
+The Settings screen exposes service, worker, database, storage, session, and
+backup health without requiring shell access. The protected operations log
+retains the newest 500 lifecycle and administration events.
+
+## Backups and Restore
+
+Backups require all browser sessions to be stopped. MediaDeck uses SQLite's
+online backup API and copies the persistent Firefox profile directories into
+an atomic backup directory. Guest and other reconstructible runtime data are
+excluded. Retention is configurable from 1 to 20 backups.
+
+Restoring from Settings writes a validated request and asks for a restart:
+
+```shell
+docker compose -f compose.yaml -f compose.sessions.yaml restart app
+```
+
+Before opening SQLite, startup validates the selected manifest, swaps the
+database and profile directory, rolls the filesystem swap back if it fails,
+then records the completed restore. Keep an additional host or storage-level
+copy of the named volume for disaster recovery.
+
+## Approved Updates
+
+`MEDIADECK_UPDATE_MANIFEST_URL` must be HTTPS. A valid manifest has this form:
+
+```json
+{
+  "schemaVersion": 1,
+  "version": "0.2.0",
+  "image": "ghcr.io/example/mediadeck@sha256:<64 lowercase hex characters>",
+  "publishedAt": "2026-07-28T12:00:00.000Z",
+  "releaseNotesUrl": "https://example.invalid/releases/0.2.0"
+}
+```
+
+MediaDeck rejects tags without a digest, redirects, invalid fields, and
+non-HTTPS release-note links. Automatic checks run on startup and every six
+hours when enabled. They never install an image.
+
+To update:
+
+1. Open Updates, run or review the check, and approve the exact release.
+2. Approval refuses active sessions, creates a backup, and writes the pinned
+   plan beneath `/data/runtime`.
+3. On the Linux host, run:
+
+   ```shell
+   ./scripts/apply-approved-update.sh .
+   ```
+
+4. The script reads the approved plan from the running container, pulls the
+   exact digest, recreates only the app service, waits for healthy database,
+   storage, and worker diagnostics, and persists the new image/version to
+   `.env`.
+
+The host replaces the container because an application should not silently
+replace itself through its Docker socket. Docker likewise documents that a
+Compose deployment is updated by recreating the affected service; see
+[Use Compose in production](https://docs.docker.com/compose/how-tos/production/).
+
+The script records the prior image and version in
+`.mediadeck-update-rollback`. If the new container does not become healthy, it
+automatically recreates the prior image. For a later manual rollback:
+
+```shell
+set -a
+. ./.mediadeck-update-rollback
+set +a
+docker compose -f compose.yaml -f compose.sessions.yaml up -d --no-build app
+```
+
+If a forward migration prevents the prior image from booting, run the approved
+new image, restore the approval backup from Settings, restart to apply it, and
+then recreate the prior image. Never delete `mediadeck-data` during rollback.
 
 ## Stop MediaDeck
 

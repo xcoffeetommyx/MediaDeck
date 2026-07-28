@@ -151,6 +151,8 @@ fullscreen. See [Stage 5 YouTube Application](stage-5-youtube-application.md).
 
 ## Stage 6: Settings, Updates, and Operations
 
+Status: Complete (2026-07-28)
+
 Scope:
 
 - Administrator settings
@@ -166,6 +168,14 @@ Validation:
 - Failed updates have a documented recovery path
 - Operators can diagnose unhealthy services without opening containers
 - The default service is private to the tailnet
+
+Validation completed with PIN authorization and rate-limit tests, a real
+SQLite/profile backup restored across an application restart, digest-pinned
+manifest and failed-check tests, controller-accessible operational screens, the
+complete quality gate, a production container build, and live API/UI checks.
+Compose publishes only to `127.0.0.1`; Tailscale Serve is the documented HTTPS
+entry point and Funnel remains disabled. See
+[Stage 6 Settings, Updates, and Operations](stage-6-operations.md).
 
 ## Stage 7: Concurrent Sessions
 

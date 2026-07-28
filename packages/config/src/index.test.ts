@@ -50,6 +50,24 @@ describe('server configuration', () => {
     ).toThrow();
   });
 
+  it('accepts only HTTPS update manifests and ignores an empty Compose value', () => {
+    expect(
+      loadServerConfig({
+        MEDIADECK_UPDATE_MANIFEST_URL: '',
+      }).updateManifestUrl,
+    ).toBeUndefined();
+    expect(
+      loadServerConfig({
+        MEDIADECK_UPDATE_MANIFEST_URL: 'https://updates.example.test/stable.json',
+      }).updateManifestUrl,
+    ).toBe('https://updates.example.test/stable.json');
+    expect(() =>
+      loadServerConfig({
+        MEDIADECK_UPDATE_MANIFEST_URL: 'http://updates.example.test/stable.json',
+      }),
+    ).toThrow();
+  });
+
   it('rejects unsafe browser session capacity and timeouts', () => {
     expect(() => loadServerConfig({ MAX_BROWSER_SESSIONS: '0' })).toThrow();
     expect(() =>

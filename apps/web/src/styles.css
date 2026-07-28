@@ -735,6 +735,227 @@ button:not(:disabled) {
   white-space: nowrap;
 }
 
+.operation-notice {
+  margin: -1rem 0 1.25rem;
+  padding: 0.9rem 1rem;
+  border: 1px solid rgba(100, 221, 176, 0.22);
+  border-radius: 0.9rem;
+  background: rgba(100, 221, 176, 0.07);
+  color: #a9e6cf;
+  font-size: 0.82rem;
+}
+
+.operation-notice.error {
+  border-color: rgba(243, 109, 127, 0.28);
+  background: rgba(92, 32, 44, 0.22);
+  color: #f0b5bf;
+}
+
+.operations-grid {
+  display: grid;
+  margin-top: 1rem;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+}
+
+.operation-card {
+  padding: clamp(1.25rem, 2.5vw, 1.75rem);
+  border: 1px solid var(--line);
+  border-radius: 1.35rem;
+  background: rgba(15, 21, 33, 0.66);
+}
+
+.operation-card-wide {
+  grid-column: 1 / -1;
+}
+
+.operation-card-heading {
+  display: flex;
+  min-height: 3rem;
+  align-items: flex-start;
+  justify-content: space-between;
+  margin-bottom: 1.25rem;
+  gap: 1rem;
+}
+
+.operation-card h2 {
+  margin: 0;
+  font-size: 1.22rem;
+  letter-spacing: -0.025em;
+}
+
+.operation-controls,
+.unlock-form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 0.7rem;
+}
+
+.unlock-form .field-label,
+.operation-controls .field-label {
+  width: 100%;
+}
+
+.compact-field {
+  width: min(100%, 15rem);
+  min-height: 3rem;
+}
+
+.operation-help,
+.operation-empty {
+  margin: 1rem 0 0;
+  color: #8993a3;
+  font-size: 0.8rem;
+  line-height: 1.55;
+}
+
+.setting-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 1rem 0;
+  border-top: 1px solid rgba(255, 255, 255, 0.07);
+  gap: 1rem;
+}
+
+.setting-row:first-of-type {
+  border-top: 0;
+}
+
+.setting-row > div:first-child {
+  display: grid;
+  gap: 0.3rem;
+}
+
+.setting-row span {
+  color: #858e9e;
+  font-size: 0.78rem;
+}
+
+.stepper {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+}
+
+.stepper .secondary-button {
+  min-width: 3rem;
+  padding: 0.5rem;
+}
+
+.backup-list {
+  display: grid;
+}
+
+.backup-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.9rem 0;
+  border-top: 1px solid rgba(255, 255, 255, 0.07);
+  gap: 1rem;
+}
+
+.backup-row > div:first-child {
+  display: grid;
+  gap: 0.25rem;
+}
+
+.backup-row span {
+  color: #858e9e;
+  font-size: 0.76rem;
+}
+
+.row-actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.danger-button {
+  color: #f0a7b3;
+}
+
+.event-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.event-list li {
+  display: grid;
+  align-items: center;
+  padding: 0.8rem 0;
+  border-top: 1px solid rgba(255, 255, 255, 0.07);
+  grid-template-columns: 7rem 1fr auto;
+  gap: 0.8rem;
+}
+
+.event-list li > span {
+  color: #8993a3;
+  font-size: 0.7rem;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.event-list li > strong {
+  font-size: 0.8rem;
+  font-weight: 620;
+}
+
+.event-list time {
+  color: #747e8e;
+  font-size: 0.7rem;
+}
+
+.event-list .event-error strong {
+  color: #f0a7b3;
+}
+
+.event-list .event-warning strong {
+  color: #e2cca1;
+}
+
+.update-panel small {
+  display: block;
+  margin-top: 0.65rem;
+  color: #737d8d;
+  font-size: 0.72rem;
+}
+
+.update-actions-card {
+  margin-top: 1rem;
+}
+
+.release-detail {
+  display: grid;
+  margin-top: 1.25rem;
+  padding-top: 1.25rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.07);
+  grid-template-columns: 1fr auto;
+  gap: 0.6rem 1rem;
+}
+
+.release-detail span {
+  color: #858e9e;
+  font-size: 0.76rem;
+}
+
+.release-detail code {
+  overflow: hidden;
+  grid-column: 1 / -1;
+  color: #9ca9bd;
+  font-size: 0.72rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.release-detail a {
+  width: max-content;
+  grid-column: 1 / -1;
+  text-decoration: none;
+}
+
 .input-legend {
   display: flex;
   position: absolute;
@@ -1240,12 +1461,31 @@ button:not(:disabled) {
     grid-template-columns: 1fr;
   }
 
+  .operations-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .operation-card-wide {
+    grid-column: auto;
+  }
+
   .update-panel {
     grid-template-columns: 1fr;
   }
 
   .stage-badge {
     justify-self: start;
+  }
+
+  .backup-row,
+  .setting-row {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .event-list li {
+    grid-template-columns: 1fr;
+    gap: 0.25rem;
   }
 
   .input-legend {

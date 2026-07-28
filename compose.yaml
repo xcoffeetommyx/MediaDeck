@@ -5,7 +5,7 @@ services:
     build:
       context: .
       target: runtime
-    image: mediadeck:0.1.0
+    image: ${MEDIADECK_IMAGE:-mediadeck:0.1.0}
     init: true
     restart: unless-stopped
     stop_grace_period: 30s
@@ -14,6 +14,7 @@ services:
       DATA_DIR: /data
       HOST: 0.0.0.0
       LOG_LEVEL: ${LOG_LEVEL:-info}
+      MEDIADECK_UPDATE_MANIFEST_URL: ${MEDIADECK_UPDATE_MANIFEST_URL:-}
       NODE_ENV: production
       PORT: 3000
       PUBLIC_DIR: /app/public

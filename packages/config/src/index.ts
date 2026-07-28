@@ -12,6 +12,13 @@ const httpUrl = z.url().refine((value) => {
   return protocol === 'http:' || protocol === 'https:';
 }, 'Must use the http or https protocol');
 
+const httpsUrl = z
+  .url()
+  .refine(
+    (value) => new URL(value).protocol === 'https:',
+    'Must use the https protocol',
+  );
+
 const browserWorkerImage =
   'ghcr.io/linuxserver/firefox@sha256:e4b9310d76fbaef54de9b6a440113729c442125f50668ad9e9f678c0af1ae700';
 
@@ -47,6 +54,10 @@ const serverEnvironmentSchema = z.object({
     .default('info'),
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
   MAX_BROWSER_SESSIONS: z.coerce.number().int().min(1).max(16).default(1),
+  MEDIADECK_UPDATE_MANIFEST_URL: z.preprocess(
+    (value) => (value === '' ? undefined : value),
+    httpsUrl.optional(),
+  ),
   PORT: z.coerce.number().int().min(1).max(65_535).default(3000),
   PUBLIC_DIR: z.string().min(1).optional(),
   TRUST_PROXY: booleanFromEnvironment,
@@ -81,6 +92,7 @@ export type ServerConfig = {
   port: number;
   publicDirectory?: string;
   trustProxy: boolean;
+  updateManifestUrl?: string;
 };
 
 export type StoragePaths = {
@@ -128,6 +140,9 @@ export function loadServerConfig(
     port: parsed.PORT,
     ...(publicDirectory ? { publicDirectory } : {}),
     trustProxy: parsed.TRUST_PROXY,
+    ...(parsed.MEDIADECK_UPDATE_MANIFEST_URL
+      ? { updateManifestUrl: parsed.MEDIADECK_UPDATE_MANIFEST_URL }
+      : {}),
   };
 }
 

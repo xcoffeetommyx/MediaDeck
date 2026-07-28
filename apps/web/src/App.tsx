@@ -18,6 +18,7 @@ import {
 
 import { ApiError, requestJson } from './api';
 import { useAutoFocus, useInputNavigation } from './navigation';
+import { SettingsView, UpdatesView } from './OperationsViews';
 
 type View = 'profiles' | 'home' | 'settings' | 'updates' | 'youtube';
 
@@ -937,134 +938,16 @@ function Settings({
   workerHealth: BrowserWorkerHealthResponse | null;
 }) {
   return (
-    <DetailView
-      eyebrow="MediaDeck"
-      title="Settings"
-      description="A clear view of the inputs and services behind your deck."
+    <SettingsView
+      controllerConnected={controllerConnected}
       onBack={onBack}
-    >
-      <div className="detail-grid">
-        <StatusCard
-          label="Controller"
-          value={controllerConnected ? 'Connected' : 'Ready to connect'}
-          detail={
-            controllerConnected
-              ? 'D-pad, A, and B are active.'
-              : 'Press any button on a connected controller.'
-          }
-          tone={controllerConnected ? 'good' : 'neutral'}
-        />
-        <StatusCard
-          label="Firefox worker"
-          value={
-            workerHealth?.status === 'online'
-              ? 'Online'
-              : workerHealth?.status === 'offline'
-                ? 'Offline'
-                : 'Not configured'
-          }
-          detail={
-            workerHealth
-              ? `${capitalize(workerHealth.transport.provider)} · ${workerHealth.transport.mode}`
-              : 'Worker status is currently unavailable.'
-          }
-          tone={workerHealth?.status === 'online' ? 'good' : 'neutral'}
-        />
-        <StatusCard
-          label="Input support"
-          value="Controller first"
-          detail="Keyboard, mouse, and touch remain fully supported."
-          tone="good"
-        />
-        <StatusCard
-          label="Administration"
-          value="Coming in Stage 6"
-          detail="Protected settings and diagnostics will live here."
-          tone="neutral"
-        />
-      </div>
-    </DetailView>
+      workerHealth={workerHealth}
+    />
   );
 }
 
 function Updates({ onBack, version }: { onBack: () => void; version: string }) {
-  return (
-    <DetailView
-      eyebrow="System"
-      title="Updates"
-      description="MediaDeck will check automatically and wait for your approval."
-      onBack={onBack}
-    >
-      <div className="update-panel">
-        <div className="update-orbit" aria-hidden="true">
-          <span>↑</span>
-        </div>
-        <div>
-          <span className="update-label">Installed version</span>
-          <strong>MediaDeck {version}</strong>
-          <p>
-            Automatic checks and the approved update workflow arrive in Stage 6. Nothing
-            installs without administrator approval.
-          </p>
-        </div>
-        <span className="stage-badge">Foundation current</span>
-      </div>
-    </DetailView>
-  );
-}
-
-function DetailView({
-  children,
-  description,
-  eyebrow,
-  onBack,
-  title,
-}: {
-  children: ReactNode;
-  description: string;
-  eyebrow: string;
-  onBack: () => void;
-  title: string;
-}) {
-  return (
-    <section className="detail-view" aria-labelledby="detail-heading">
-      <button
-        className="back-button focusable"
-        data-focusable="true"
-        data-autofocus="true"
-        onClick={onBack}
-      >
-        <span aria-hidden="true">←</span> Back
-      </button>
-      <div className="section-heading">
-        <p className="eyebrow">{eyebrow}</p>
-        <h1 id="detail-heading">{title}</h1>
-        <p>{description}</p>
-      </div>
-      {children}
-    </section>
-  );
-}
-
-function StatusCard({
-  detail,
-  label,
-  tone,
-  value,
-}: {
-  detail: string;
-  label: string;
-  tone: 'good' | 'neutral';
-  value: string;
-}) {
-  return (
-    <article className="status-card">
-      <span className={`status-card-light ${tone}`} aria-hidden="true" />
-      <span className="status-card-label">{label}</span>
-      <strong>{value}</strong>
-      <p>{detail}</p>
-    </article>
-  );
+  return <UpdatesView onBack={onBack} version={version} />;
 }
 
 function CreateProfileDialog({
@@ -1277,10 +1160,6 @@ function ProfileSkeleton() {
 
 function getErrorMessage(error: unknown, fallback: string): string {
   return error instanceof ApiError ? error.message : fallback;
-}
-
-function capitalize(value: string): string {
-  return `${value.charAt(0).toUpperCase()}${value.slice(1)}`;
 }
 
 function readYouTubeResumeContext(): YouTubeResumeContext | null {

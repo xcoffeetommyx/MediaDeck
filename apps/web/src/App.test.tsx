@@ -70,6 +70,60 @@ function mockApi(profiles = [profile]) {
         }),
       );
     }
+    if (url.endsWith('/api/v1/admin/status')) {
+      return Promise.resolve(
+        jsonResponse({
+          authenticated: true,
+          expiresAt: null,
+          pinEnabled: false,
+        }),
+      );
+    }
+    if (url.endsWith('/api/v1/settings')) {
+      return Promise.resolve(
+        jsonResponse({
+          automaticUpdateChecks: true,
+          backupRetentionCount: 5,
+        }),
+      );
+    }
+    if (url.endsWith('/api/v1/operations/diagnostics')) {
+      return Promise.resolve(
+        jsonResponse({
+          activeSessions: 0,
+          checkedAt: '2026-07-28T12:00:00.000Z',
+          database: { healthy: true, schemaVersion: 4, sizeBytes: 4096 },
+          failedSessions: 0,
+          lastBackupAt: null,
+          profiles: profiles.length,
+          status: 'healthy',
+          storage: { availableBytes: 4_000_000_000, writable: true },
+          uptimeSeconds: 10,
+          version: '0.1.0-test',
+          worker: { detail: null, status: 'online' },
+        }),
+      );
+    }
+    if (url.includes('/api/v1/operations/logs')) {
+      return Promise.resolve(jsonResponse({ events: [] }));
+    }
+    if (url.endsWith('/api/v1/backups')) {
+      return Promise.resolve(jsonResponse({ backups: [] }));
+    }
+    if (url.endsWith('/api/v1/updates/status')) {
+      return Promise.resolve(
+        jsonResponse({
+          approvedAt: null,
+          backupId: null,
+          checkedAt: null,
+          installedVersion: '0.1.0-test',
+          manifestConfigured: false,
+          message: 'Set MEDIADECK_UPDATE_MANIFEST_URL to enable release checks.',
+          release: null,
+          state: 'unconfigured',
+        }),
+      );
+    }
     if (url.endsWith('/api/v1/profiles') && init?.method === 'POST') {
       if (typeof init.body !== 'string') {
         throw new TypeError('Expected a JSON request body');
@@ -169,6 +223,24 @@ describe('MediaDeck application shell', () => {
     fireEvent.keyDown(window, { key: 'Backspace' });
     expect(
       screen.getByRole('heading', { name: 'Who’s watching?' }),
+    ).toBeInTheDocument();
+  });
+
+  it('loads the Stage 6 operational settings screen', async () => {
+    mockApi();
+    const user = userEvent.setup();
+    render(<App />);
+
+    await user.click(await screen.findByRole('button', { name: /Tommy/ }));
+    await user.click(screen.getByRole('button', { name: /Settings/ }));
+
+    expect(
+      await screen.findByRole('heading', { name: 'Administrator access' }),
+    ).toBeInTheDocument();
+    expect(screen.getAllByText('Healthy')).toHaveLength(2);
+    expect(screen.getByRole('button', { name: 'Create backup' })).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: 'Run recovery check' }),
     ).toBeInTheDocument();
   });
 

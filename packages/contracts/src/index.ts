@@ -169,3 +169,164 @@ export type CreateBrowserSessionRequest = z.infer<
 export type LaunchMediaApplicationRequest = z.infer<
   typeof launchMediaApplicationRequestSchema
 >;
+
+export const administratorPinSchema = z
+  .string()
+  .regex(/^\d{4,12}$/, 'PIN must contain 4 to 12 digits');
+
+export const administratorStatusSchema = z.object({
+  authenticated: z.boolean(),
+  expiresAt: z.iso.datetime().nullable(),
+  pinEnabled: z.boolean(),
+});
+
+export const unlockAdministratorRequestSchema = z.object({
+  pin: administratorPinSchema,
+});
+
+export const unlockAdministratorResponseSchema = z.object({
+  status: administratorStatusSchema,
+  token: z.string().min(32),
+});
+
+export const setAdministratorPinRequestSchema = z.object({
+  pin: administratorPinSchema.nullable(),
+});
+
+export type AdministratorStatus = z.infer<typeof administratorStatusSchema>;
+export type UnlockAdministratorRequest = z.infer<
+  typeof unlockAdministratorRequestSchema
+>;
+export type UnlockAdministratorResponse = z.infer<
+  typeof unlockAdministratorResponseSchema
+>;
+export type SetAdministratorPinRequest = z.infer<
+  typeof setAdministratorPinRequestSchema
+>;
+
+export const administratorSettingsSchema = z.object({
+  automaticUpdateChecks: z.boolean(),
+  backupRetentionCount: z.number().int().min(1).max(20),
+});
+
+export const updateAdministratorSettingsRequestSchema = administratorSettingsSchema
+  .partial()
+  .refine((value) => Object.keys(value).length > 0, {
+    message: 'At least one setting is required',
+  });
+
+export type AdministratorSettings = z.infer<typeof administratorSettingsSchema>;
+export type UpdateAdministratorSettingsRequest = z.infer<
+  typeof updateAdministratorSettingsRequestSchema
+>;
+
+export const operationEventSchema = z.object({
+  category: z.enum([
+    'administration',
+    'backup',
+    'profile',
+    'recovery',
+    'session',
+    'system',
+    'update',
+  ]),
+  createdAt: z.iso.datetime(),
+  id: z.number().int().positive(),
+  level: z.enum(['info', 'warning', 'error']),
+  message: z.string().min(1),
+});
+
+export const operationEventListResponseSchema = z.object({
+  events: z.array(operationEventSchema),
+});
+
+export type OperationEvent = z.infer<typeof operationEventSchema>;
+export type OperationEventListResponse = z.infer<
+  typeof operationEventListResponseSchema
+>;
+
+export const operationalDiagnosticsSchema = z.object({
+  activeSessions: z.number().int().nonnegative(),
+  checkedAt: z.iso.datetime(),
+  database: z.object({
+    healthy: z.boolean(),
+    schemaVersion: z.number().int().nonnegative(),
+    sizeBytes: z.number().int().nonnegative(),
+  }),
+  failedSessions: z.number().int().nonnegative(),
+  lastBackupAt: z.iso.datetime().nullable(),
+  profiles: z.number().int().nonnegative(),
+  status: z.enum(['healthy', 'degraded']),
+  storage: z.object({
+    availableBytes: z.number().int().nonnegative(),
+    writable: z.boolean(),
+  }),
+  uptimeSeconds: z.number().nonnegative(),
+  version: z.string().min(1),
+  worker: z.object({
+    detail: z.string().min(1).nullable(),
+    status: z.enum(['online', 'offline', 'unconfigured']),
+  }),
+});
+
+export type OperationalDiagnostics = z.infer<typeof operationalDiagnosticsSchema>;
+
+export const backupSummarySchema = z.object({
+  appVersion: z.string().min(1),
+  createdAt: z.iso.datetime(),
+  id: z.string().regex(/^[a-zA-Z0-9._-]{1,96}$/),
+  profileCount: z.number().int().nonnegative(),
+  schemaVersion: z.number().int().nonnegative(),
+  sizeBytes: z.number().int().nonnegative(),
+});
+
+export const backupListResponseSchema = z.object({
+  backups: z.array(backupSummarySchema),
+});
+
+export const restoreBackupResponseSchema = z.object({
+  backupId: backupSummarySchema.shape.id,
+  restartRequired: z.literal(true),
+  scheduledAt: z.iso.datetime(),
+});
+
+export type BackupSummary = z.infer<typeof backupSummarySchema>;
+export type BackupListResponse = z.infer<typeof backupListResponseSchema>;
+export type RestoreBackupResponse = z.infer<typeof restoreBackupResponseSchema>;
+
+export const updateManifestSchema = z.object({
+  image: z
+    .string()
+    .regex(
+      /^[a-z0-9./_-]+(?::[a-zA-Z0-9._-]+)?@sha256:[a-f0-9]{64}$/,
+      'Update image must be pinned to a sha256 digest',
+    ),
+  publishedAt: z.iso.datetime(),
+  releaseNotesUrl: z.url().startsWith('https://').optional(),
+  schemaVersion: z.literal(1),
+  version: z.string().regex(/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/),
+});
+
+export const availableUpdateSchema = updateManifestSchema.omit({
+  schemaVersion: true,
+});
+
+export const updateStatusSchema = z.object({
+  approvedAt: z.iso.datetime().nullable(),
+  backupId: backupSummarySchema.shape.id.nullable(),
+  checkedAt: z.iso.datetime().nullable(),
+  installedVersion: z.string().min(1),
+  manifestConfigured: z.boolean(),
+  message: z.string().min(1).nullable(),
+  release: availableUpdateSchema.nullable(),
+  state: z.enum(['unconfigured', 'current', 'available', 'approved', 'error']),
+});
+
+export const approveUpdateRequestSchema = z.object({
+  version: updateManifestSchema.shape.version,
+});
+
+export type UpdateManifest = z.infer<typeof updateManifestSchema>;
+export type AvailableUpdate = z.infer<typeof availableUpdateSchema>;
+export type UpdateStatus = z.infer<typeof updateStatusSchema>;
+export type ApproveUpdateRequest = z.infer<typeof approveUpdateRequestSchema>;

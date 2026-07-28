@@ -32,7 +32,14 @@ export class ProfileManager {
 
     await mkdir(resolve(profileRoot, 'firefox'), { recursive: true });
     try {
-      return this.store.createProfile(profile);
+      const created = this.store.createProfile(profile);
+      this.store.recordEvent(
+        'profile',
+        'info',
+        `Profile ${profile.name} was created`,
+        timestamp,
+      );
+      return created;
     } catch (error) {
       await rm(profileRoot, { force: true, recursive: true });
       throw error;
@@ -48,7 +55,7 @@ export class ProfileManager {
   }
 
   update(id: string, input: UpdateProfileRequest): Profile {
-    return this.store.updateProfile(
+    const updated = this.store.updateProfile(
       id,
       {
         ...(input.avatarId !== undefined ? { avatarId: input.avatarId } : {}),
@@ -56,11 +63,15 @@ export class ProfileManager {
       },
       this.now().toISOString(),
     );
+    this.store.recordEvent('profile', 'info', `Profile ${updated.name} was updated`);
+    return updated;
   }
 
   async delete(id: string): Promise<void> {
+    const profile = this.store.requireProfile(id);
     this.store.deleteProfile(id, this.now().toISOString());
     await rm(this.profileRoot(id), { force: true, recursive: true });
+    this.store.recordEvent('profile', 'warning', `Profile ${profile.name} was deleted`);
   }
 
   private profileRoot(id: string): string {

@@ -28,8 +28,11 @@ Home contains three primary tiles:
 - Updates
 
 The YouTube tile starts or resumes the selected profile's Firefox session.
-Settings reports controller, input, and Firefox-worker readiness. Updates shows
-the installed MediaDeck version and the Stage 6 update placeholder.
+Settings reports controller, Firefox-worker, database, storage, and session
+health. It also provides optional administrator PIN controls, maintenance
+preferences, backup and restore actions, the operations log, and a manual
+recovery check. Updates shows the installed version, manifest state, available
+digest-pinned release, explicit approval action, and its pre-update backup.
 
 ## YouTube Viewer
 

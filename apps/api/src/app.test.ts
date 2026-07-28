@@ -1,14 +1,18 @@
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import type { ServerConfig } from '@mediadeck/config';
 import {
+  backupSummarySchema,
   browserSessionSchema,
   browserWorkerHealthResponseSchema,
   healthResponseSchema,
+  operationEventListResponseSchema,
   profileSchema,
   publicConfigResponseSchema,
+  unlockAdministratorResponseSchema,
+  updateStatusSchema,
 } from '@mediadeck/contracts';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
@@ -305,5 +309,196 @@ describe('MediaDeck API', () => {
       error: 'validation_error',
       statusCode: 400,
     });
+  });
+
+  it('protects privileged operations after an administrator PIN is enabled', async () => {
+    const app = await buildApplication({
+      config: createConfig(),
+      logger: false,
+    });
+
+    const enabled = await app.inject({
+      method: 'PUT',
+      payload: { pin: '2468' },
+      url: '/api/v1/admin/pin',
+    });
+    expect(enabled.json()).toMatchObject({
+      authenticated: false,
+      pinEnabled: true,
+    });
+
+    const unauthorized = await app.inject({
+      method: 'PATCH',
+      payload: { backupRetentionCount: 7 },
+      url: '/api/v1/settings',
+    });
+    expect(unauthorized.statusCode).toBe(401);
+
+    const wrongPin = await app.inject({
+      method: 'POST',
+      payload: { pin: '1111' },
+      url: '/api/v1/admin/unlock',
+    });
+    expect(wrongPin.statusCode).toBe(401);
+
+    const unlocked = await app.inject({
+      method: 'POST',
+      payload: { pin: '2468' },
+      url: '/api/v1/admin/unlock',
+    });
+    const token = unlockAdministratorResponseSchema.parse(unlocked.json()).token;
+    expect(token).toHaveLength(43);
+
+    const updated = await app.inject({
+      headers: { authorization: `Bearer ${token}` },
+      method: 'PATCH',
+      payload: { backupRetentionCount: 7 },
+      url: '/api/v1/settings',
+    });
+    expect(updated.json()).toMatchObject({ backupRetentionCount: 7 });
+
+    const logs = await app.inject({
+      headers: { authorization: `Bearer ${token}` },
+      method: 'GET',
+      url: '/api/v1/operations/logs',
+    });
+    expect(logs.statusCode).toBe(200);
+    expect(
+      operationEventListResponseSchema
+        .parse(logs.json())
+        .events.some((event) => event.category === 'administration'),
+    ).toBe(true);
+
+    await app.close();
+  });
+
+  it('creates a consistent backup and applies a scheduled restore on restart', async () => {
+    const app = await buildApplication({
+      config: createConfig(),
+      logger: false,
+    });
+    await app.inject({
+      method: 'POST',
+      payload: { name: 'Before backup' },
+      url: '/api/v1/profiles',
+    });
+    const createdBackup = await app.inject({
+      method: 'POST',
+      url: '/api/v1/backups',
+    });
+    const backup = backupSummarySchema.parse(createdBackup.json());
+    expect(createdBackup.statusCode).toBe(201);
+
+    await app.inject({
+      method: 'POST',
+      payload: { name: 'After backup' },
+      url: '/api/v1/profiles',
+    });
+    const scheduled = await app.inject({
+      method: 'POST',
+      url: `/api/v1/backups/${backup.id}/restore`,
+    });
+    expect(scheduled.json()).toMatchObject({
+      backupId: backup.id,
+      restartRequired: true,
+    });
+    await app.close();
+
+    const restoredApp = await buildApplication({
+      config: createConfig(),
+      logger: false,
+    });
+    const restoredProfiles = await restoredApp.inject({
+      method: 'GET',
+      url: '/api/v1/profiles',
+    });
+    expect(restoredProfiles.json()).toMatchObject({
+      profiles: [expect.objectContaining({ name: 'Before backup' })],
+    });
+    await restoredApp.close();
+  });
+
+  it('checks and approves only a digest-pinned update with a backup', async () => {
+    const config = {
+      ...createConfig(),
+      updateManifestUrl: 'https://updates.example.test/stable.json',
+    };
+    const image = `ghcr.io/example/mediadeck@sha256:${'b'.repeat(64)}`;
+    const app = await buildApplication({
+      config,
+      logger: false,
+      updateFetch: () =>
+        Promise.resolve(
+          new Response(
+            JSON.stringify({
+              image,
+              publishedAt: '2026-07-28T12:00:00.000Z',
+              releaseNotesUrl: 'https://updates.example.test/releases/0.2.0',
+              schemaVersion: 1,
+              version: '0.2.0',
+            }),
+            {
+              headers: { 'Content-Type': 'application/json' },
+              status: 200,
+            },
+          ),
+        ),
+    });
+
+    const checked = await app.inject({
+      method: 'POST',
+      url: '/api/v1/updates/check',
+    });
+    expect(updateStatusSchema.parse(checked.json())).toMatchObject({
+      release: { image, version: '0.2.0' },
+      state: 'available',
+    });
+
+    const approved = await app.inject({
+      method: 'POST',
+      payload: { version: '0.2.0' },
+      url: '/api/v1/updates/approve',
+    });
+    const approvedStatus = updateStatusSchema.parse(approved.json());
+    expect(approvedStatus.state).toBe('approved');
+    expect(typeof approvedStatus.backupId).toBe('string');
+    const approvedPlan: unknown = JSON.parse(
+      await readFile(join(dataDirectory, 'runtime', 'approved-update.json'), 'utf8'),
+    );
+    expect(approvedPlan).toMatchObject({
+      image,
+      version: '0.2.0',
+    });
+
+    await app.close();
+  });
+
+  it('reports update-check failures without losing API availability', async () => {
+    const app = await buildApplication({
+      config: {
+        ...createConfig(),
+        updateManifestUrl: 'https://updates.example.test/stable.json',
+      },
+      logger: false,
+      updateFetch: () => Promise.reject(new Error('release service offline')),
+    });
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/v1/updates/check',
+    });
+    const failedStatus = updateStatusSchema.parse(response.json());
+    expect(failedStatus.state).toBe('error');
+    expect(failedStatus.message).toContain('release service offline');
+    expect(
+      (
+        await app.inject({
+          method: 'GET',
+          url: '/api/v1/health',
+        })
+      ).statusCode,
+    ).toBe(200);
+
+    await app.close();
   });
 });

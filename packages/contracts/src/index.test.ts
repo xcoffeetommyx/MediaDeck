@@ -8,6 +8,7 @@ import {
   healthResponseSchema,
   profileSchema,
   publicConfigResponseSchema,
+  updateManifestSchema,
   updateProfileRequestSchema,
 } from './index.js';
 
@@ -135,5 +136,22 @@ describe('API contracts', () => {
         updatedAt: '2026-07-28T13:00:00.000Z',
       }).status,
     ).toBe('stopped');
+  });
+
+  it('requires release images to be pinned by digest', () => {
+    const valid = {
+      image: `ghcr.io/example/mediadeck@sha256:${'a'.repeat(64)}`,
+      publishedAt: '2026-07-28T12:00:00.000Z',
+      schemaVersion: 1,
+      version: '0.2.0',
+    };
+
+    expect(updateManifestSchema.parse(valid).version).toBe('0.2.0');
+    expect(() =>
+      updateManifestSchema.parse({
+        ...valid,
+        image: 'ghcr.io/example/mediadeck:latest',
+      }),
+    ).toThrow();
   });
 });

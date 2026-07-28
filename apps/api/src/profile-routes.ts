@@ -6,6 +6,7 @@ import {
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 
+import type { AdministratorAccess } from './administrator-access.js';
 import type { ProfileManager } from './profile-manager.js';
 
 const profileParametersSchema = z.object({
@@ -15,6 +16,7 @@ const profileParametersSchema = z.object({
 export function registerProfileRoutes(
   app: FastifyInstance,
   profiles: ProfileManager,
+  administrator: AdministratorAccess,
 ): void {
   app.get('/api/v1/profiles', (): ProfileListResponse => {
     return {
@@ -40,6 +42,7 @@ export function registerProfileRoutes(
   });
 
   app.delete('/api/v1/profiles/:profileId', async (request, reply) => {
+    administrator.require(request.headers.authorization);
     const { profileId } = profileParametersSchema.parse(request.params);
     await profiles.delete(profileId);
     return reply.code(204).send();

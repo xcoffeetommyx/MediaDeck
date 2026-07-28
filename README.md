@@ -23,7 +23,7 @@ Development philosophy:
 
 ## Current Status
 
-Stages 1 through 5 establish:
+Stages 1 through 6 establish:
 
 - React, TypeScript, Vite, and Tailwind CSS frontend
 - Fastify backend
@@ -42,7 +42,7 @@ Stages 1 through 5 establish:
 - Docker workers keyed by opaque session IDs
 - A profile picker backed by the persistent profile API
 - A temporary Guest path and in-app profile creation
-- A controller-first home screen with Settings and Updates placeholders
+- A controller-first home screen with operational Settings and Updates
 - Spatial focus navigation for gamepad, keyboard, mouse, and touch
 - Responsive TV, tablet, desktop, and phone layouts
 - Automated interaction and accessibility checks
@@ -51,6 +51,11 @@ Stages 1 through 5 establish:
 - A kiosk-mode Firefox viewer with video, audio, reload, and fullscreen controls
 - Heartbeat, resume, recovery, and explicit return behavior
 - Persistent profile sessions and temporary Guest cleanup through the visible UI
+- Optional administrator PIN protection with expiring unlock sessions
+- System diagnostics, a persistent operations log, and recovery reconciliation
+- Consistent SQLite/profile backups and restart-applied restores
+- HTTPS manifest checks and digest-pinned, backup-first update approval
+- A headless Linux and private Tailscale Serve operations runbook
 
 ## Quick Start
 

@@ -12,6 +12,8 @@ import { ZodError } from 'zod';
 
 import { ApplicationRegistry } from './application-registry.js';
 import { registerApplicationRoutes } from './application-routes.js';
+import { AdministratorAccess } from './administrator-access.js';
+import { applyScheduledRestore, BackupManager } from './backup-manager.js';
 import {
   type BrowserTransportProbe,
   DriverBrowserTransportProbe,
@@ -22,13 +24,17 @@ import {
   type BrowserWorkerDriver,
 } from './browser-worker-driver.js';
 import { DomainError } from './domain-errors.js';
+import { OperationsManager } from './operations.js';
+import { registerOperationsRoutes } from './operations-routes.js';
 import { ProfileManager } from './profile-manager.js';
 import { registerProfileRoutes } from './profile-routes.js';
 import { registerSessionRoutes } from './session-routes.js';
 import { SessionManager } from './session-manager.js';
+import { SettingsManager } from './settings-manager.js';
 import { ensureStorageLayout } from './storage.js';
 import { MediaDeckStore } from './store.js';
 import { registerStreamGateway } from './stream-gateway.js';
+import { UpdateManager } from './update-manager.js';
 
 export type BuildApplicationOptions = {
   browserTransportProbe?: BrowserTransportProbe;
@@ -36,6 +42,7 @@ export type BuildApplicationOptions = {
   logger?: boolean;
   sessionManager?: SessionManager;
   store?: MediaDeckStore;
+  updateFetch?: typeof fetch;
   workerDriver?: BrowserWorkerDriver;
 };
 
@@ -65,6 +72,7 @@ export async function buildApplication({
   logger,
   sessionManager: providedSessionManager,
   store: providedStore,
+  updateFetch,
   workerDriver: providedWorkerDriver,
 }: BuildApplicationOptions): Promise<FastifyInstance> {
   const app = Fastify({
@@ -75,6 +83,7 @@ export async function buildApplication({
   });
 
   const paths = await ensureStorageLayout(config.dataDirectory);
+  const restoredBackupId = providedStore ? null : await applyScheduledRestore(paths);
   const store = providedStore ?? new MediaDeckStore(paths.databaseFile);
   const workerDriver =
     providedWorkerDriver ?? createBrowserWorkerDriver(config.browserWorker);
@@ -96,6 +105,47 @@ export async function buildApplication({
     });
 
   await sessionManager.initialize();
+
+  if (restoredBackupId) {
+    store.recordEvent(
+      'backup',
+      'warning',
+      `Restore from backup ${restoredBackupId} completed during startup`,
+    );
+  }
+
+  const transportProbe =
+    browserTransportProbe ??
+    (config.browserWorker.driver === 'docker'
+      ? new DriverBrowserTransportProbe(workerDriver)
+      : new HttpBrowserTransportProbe({
+          workerUrl: config.browserWorkerUrl,
+        }));
+  const administrator = new AdministratorAccess(store);
+  const settings = new SettingsManager(store);
+  const backups = new BackupManager(
+    config.appVersion,
+    paths,
+    store,
+    () => settings.get().backupRetentionCount,
+  );
+  const updates = new UpdateManager({
+    appVersion: config.appVersion,
+    backups,
+    ...(updateFetch ? { fetch: updateFetch } : {}),
+    ...(config.updateManifestUrl ? { manifestUrl: config.updateManifestUrl } : {}),
+    paths,
+    store,
+  });
+  const operations = new OperationsManager(
+    config.appVersion,
+    backups,
+    paths,
+    transportProbe,
+    sessionManager,
+    store,
+  );
+  updates.initialize(settings.get().automaticUpdateChecks);
 
   app.setErrorHandler((error, _request, reply) => {
     if (error instanceof DomainError) {
@@ -135,6 +185,7 @@ export async function buildApplication({
   });
 
   app.addHook('onClose', async () => {
+    updates.close();
     await sessionManager.shutdown();
     if (!providedStore) {
       store.close();
@@ -160,22 +211,21 @@ export async function buildApplication({
     };
   });
 
-  const transportProbe =
-    browserTransportProbe ??
-    (config.browserWorker.driver === 'docker'
-      ? new DriverBrowserTransportProbe(workerDriver)
-      : new HttpBrowserTransportProbe({
-          workerUrl: config.browserWorkerUrl,
-        }));
-
   app.get(
     '/api/v1/browser-worker/health',
     async (): Promise<BrowserWorkerHealthResponse> => transportProbe.check(),
   );
 
-  registerProfileRoutes(app, profileManager);
+  registerProfileRoutes(app, profileManager, administrator);
   registerSessionRoutes(app, sessionManager);
   registerApplicationRoutes(app, applications, sessionManager);
+  registerOperationsRoutes(app, {
+    administrator,
+    backups,
+    operations,
+    settings,
+    updates,
+  });
   registerStreamGateway(app, sessionManager);
 
   if (config.publicDirectory && (await directoryExists(config.publicDirectory))) {

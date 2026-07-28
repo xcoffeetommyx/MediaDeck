@@ -132,7 +132,14 @@ export class SessionManager {
 
     try {
       await mkdir(filesystemPath, { recursive: true });
-      return toPublicSession(await this.startWorker(session));
+      const started = await this.startWorker(session);
+      this.#store.recordEvent(
+        'session',
+        'info',
+        `${application.displayName} session ${id} started for ${input.kind}`,
+        timestamp,
+      );
+      return toPublicSession(started);
     } catch (error) {
       const failed = this.markFailed(
         session.id,
@@ -141,6 +148,11 @@ export class SessionManager {
       if (failed.kind === 'guest') {
         await this.cleanupGuest(failed);
       }
+      this.#store.recordEvent(
+        'session',
+        'error',
+        `Session ${id} failed to start: ${failed.failureReason ?? 'unknown error'}`,
+      );
 
       if (error instanceof WorkerUnavailableError) {
         throw error;
@@ -296,6 +308,12 @@ export class SessionManager {
     if (session.kind === 'guest') {
       await this.cleanupGuest(session);
     }
+    this.#store.recordEvent(
+      'session',
+      'info',
+      `Session ${id} stopped`,
+      session.endedAt ?? this.#now().toISOString(),
+    );
 
     return toPublicSession(session);
   }
@@ -326,7 +344,13 @@ export class SessionManager {
 
     try {
       await mkdir(this.sessionFilesystemPath(session), { recursive: true });
-      return toPublicSession(await this.startWorker(session));
+      const recovered = await this.startWorker(session);
+      this.#store.recordEvent(
+        'recovery',
+        'info',
+        `Session ${id} browser worker was recovered`,
+      );
+      return toPublicSession(recovered);
     } catch (error) {
       const failed = this.markFailed(
         id,

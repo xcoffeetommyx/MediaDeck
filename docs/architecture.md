@@ -53,6 +53,29 @@ SQLite stores profile metadata, session history, worker identity, health state,
 timestamps, and locks. Worker IDs and storage paths remain internal and are
 never included in public session responses.
 
+Stage 6 adds an operations layer beside the session manager:
+
+```text
+Administrator Access
+  -> expiring in-memory unlock tokens
+  -> privileged route guard
+Settings / Operations
+  -> SQLite settings and bounded event log
+  -> health and reconciliation
+Backup Manager
+  -> SQLite snapshot + persistent profile copy
+  -> restart-applied restore request
+Update Manager
+  -> HTTPS digest-pinned manifest
+  -> backup-first approval
+  -> host-side container replacement
+```
+
+These services depend on the existing store and worker contracts but do not
+enter the video-stream proxy. That keeps operations traffic off the
+latency-sensitive streaming path and leaves worker capacity replaceable for
+Stage 7.
+
 See [Architecture Decisions](architecture-decisions.md) for the accepted
 constraints and [Implementation Plan](implementation-plan.md) for delivery
 stages.

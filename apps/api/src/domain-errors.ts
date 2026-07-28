@@ -32,3 +32,15 @@ export class WorkerUnavailableError extends DomainError {
     super(message, 'browser_worker_unavailable', 503);
   }
 }
+
+export class UnauthorizedError extends DomainError {
+  constructor(message = 'Administrator authorization is required') {
+    super(message, 'administrator_authorization_required', 401);
+  }
+}
+
+export class RateLimitError extends DomainError {
+  constructor(message: string) {
+    super(message, 'rate_limit_exceeded', 429);
+  }
+}
