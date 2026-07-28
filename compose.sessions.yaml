@@ -1,0 +1,22 @@
+name: mediadeck
+
+services:
+  app:
+    environment:
+      BROWSER_DATA_VOLUME: ${MEDIADECK_DATA_VOLUME:-mediadeck-data}
+      BROWSER_FRAMERATE: ${BROWSER_FRAMERATE:-60}
+      BROWSER_PGID: ${PGID:-1000}
+      BROWSER_PUID: ${PUID:-1000}
+      BROWSER_SESSION_HEALTH_INTERVAL_SECONDS: ${BROWSER_SESSION_HEALTH_INTERVAL_SECONDS:-15}
+      BROWSER_SESSION_IDLE_TIMEOUT_SECONDS: ${BROWSER_SESSION_IDLE_TIMEOUT_SECONDS:-1800}
+      BROWSER_START_URL: ${BROWSER_START_URL:-https://www.youtube.com/}
+      BROWSER_VIDEO_BITRATE: ${BROWSER_VIDEO_BITRATE:-12}
+      BROWSER_WORKER_DRIVER: docker
+      BROWSER_WORKER_NETWORK: ${BROWSER_WORKER_NETWORK:-mediadeck_default}
+      DOCKER_SOCKET_PATH: /var/run/docker.sock
+      MAX_BROWSER_SESSIONS: ${MAX_BROWSER_SESSIONS:-1}
+      TZ: ${TZ:-Etc/UTC}
+    group_add:
+      - ${DOCKER_GID:-0}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock

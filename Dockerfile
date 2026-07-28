@@ -6,6 +6,7 @@ ENV PNPM_HOME=/pnpm
 ENV PATH=$PNPM_HOME:$PATH
 
 RUN corepack enable && corepack prepare pnpm@11.9.0 --activate
+RUN apk add --no-cache g++ make python3
 
 WORKDIR /workspace
 
@@ -42,7 +43,9 @@ ENV PUBLIC_DIR=/app/public
 
 WORKDIR /app
 
-RUN mkdir -p /app/public /data && chown -R node:node /app /data
+RUN apk add --no-cache libstdc++ \
+    && mkdir -p /app/public /data \
+    && chown -R node:node /app /data
 
 COPY --chown=node:node --from=build /opt/mediadeck/ ./
 COPY --chown=node:node --from=build /workspace/apps/web/dist/ ./public/

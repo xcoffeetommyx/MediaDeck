@@ -69,6 +69,36 @@ docker compose -f compose.yaml -f compose.browser-spike.yaml -f compose.browser-
 Do not use the GPU override until `BROWSER_DRI_DEVICE` has been verified on the
 host.
 
+## Profile-Aware Session Workers
+
+Stage 3 replaces the long-lived spike worker with workers created for individual
+sessions:
+
+```shell
+docker compose -f compose.yaml -f compose.sessions.yaml up --build -d
+```
+
+On Linux, set `DOCKER_GID` in `.env` to the group that owns the Docker socket:
+
+```shell
+stat -c '%g' /var/run/docker.sock
+```
+
+The default capacity is one active session. Raising
+`MAX_BROWSER_SESSIONS` exercises the multi-profile architecture but does not
+make Stage 7's client routing and host capacity work complete.
+
+Useful API calls:
+
+```shell
+curl http://127.0.0.1:8080/api/v1/profiles
+curl http://127.0.0.1:8080/api/v1/sessions
+curl http://127.0.0.1:8080/api/v1/browser-worker/health
+```
+
+The Stage 2 spike override remains available for direct transport diagnostics.
+Do not combine `compose.browser-spike.yaml` and `compose.sessions.yaml`.
+
 ## Quality Checks
 
 Run the complete local validation suite:

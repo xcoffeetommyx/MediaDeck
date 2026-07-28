@@ -22,9 +22,14 @@ describe('persistent storage layout', () => {
 
     await expect(
       Promise.all(
-        [paths.database, paths.profiles, paths.backups, paths.runtime].map(
-          async (path) => access(path),
-        ),
+        [
+          paths.database,
+          paths.profiles,
+          paths.backups,
+          paths.runtime,
+          paths.guests,
+          paths.locks,
+        ].map(async (path) => access(path)),
       ),
     ).resolves.toBeDefined();
   });

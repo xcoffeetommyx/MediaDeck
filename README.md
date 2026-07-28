@@ -23,7 +23,7 @@ Development philosophy:
 
 ## Current Status
 
-Stages 1 and 2 establish:
+Stages 1 through 3 establish:
 
 - React, TypeScript, Vite, and Tailwind CSS frontend
 - Fastify backend
@@ -36,8 +36,12 @@ Stages 1 and 2 establish:
 - A pinned Firefox/Selkies browser worker
 - YouTube video, audio, input, and reconnect validation
 - A transport-neutral browser-worker health API
+- Persistent profile CRUD backed by SQLite
+- Ephemeral Guest sessions with automatic cleanup
+- Profile locks, idle shutdown, health monitoring, and crash recovery
+- Docker workers keyed by opaque session IDs
 
-Profile-aware browser session lifecycle begins in Stage 3.
+The controller-first application shell begins in Stage 4.
 
 ## Quick Start
 
@@ -60,6 +64,12 @@ Run the Stage 2 browser worker with:
 docker compose -f compose.yaml -f compose.browser-spike.yaml up --build -d
 ```
 
+Run the Stage 3 profile-aware worker manager with:
+
+```shell
+docker compose -f compose.yaml -f compose.sessions.yaml up --build -d
+```
+
 ## Project Documents
 
 - [Product specification](docs/product-spec.md)
@@ -70,3 +80,4 @@ docker compose -f compose.yaml -f compose.browser-spike.yaml up --build -d
 - [Development guide](docs/development.md)
 - [Deployment guide](docs/deployment.md)
 - [Stage 2 browser transport report](docs/stage-2-browser-transport.md)
+- [Stage 3 profiles and sessions report](docs/stage-3-profiles-sessions.md)

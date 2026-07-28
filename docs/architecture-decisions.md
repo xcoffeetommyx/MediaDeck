@@ -76,6 +76,12 @@ Concurrent use is deliberately postponed until the single-session lifecycle is
 reliable. No database schema or API may assume that only one global session can
 ever exist.
 
+Stage 3 implements this model with a configurable capacity limit that defaults
+to one. SQLite enforces a partial unique index across active sessions for each
+persistent profile. The worker driver and database support different profiles
+concurrently when the capacity setting is raised; multi-user routing and load
+validation remain Stage 7.
+
 ## 4. Profile Isolation
 
 Status: Accepted
@@ -93,6 +99,10 @@ Profile display names are never used as filesystem keys.
 Guest is temporary. Guest receives a unique runtime directory for each session,
 and that directory is deleted after the session ends. Guest browser history,
 cookies, logins, preferences, and add-ons do not persist.
+
+Profile deletion is implemented as a metadata soft delete so historical session
+records keep referential integrity. The associated Firefox directory is removed
+only after MediaDeck confirms that no active session holds the profile lock.
 
 ## 5. Application Extensibility
 

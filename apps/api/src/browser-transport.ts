@@ -3,6 +3,8 @@ import type {
   BrowserWorkerHealthResponse,
 } from '@mediadeck/contracts';
 
+import type { BrowserWorkerDriver } from './browser-worker-driver.js';
+
 export type BrowserTransportProbe = {
   check(): Promise<BrowserWorkerHealthResponse>;
 };
@@ -87,5 +89,26 @@ export class HttpBrowserTransportProbe implements BrowserTransportProbe {
         transport,
       };
     }
+  }
+}
+
+export class DriverBrowserTransportProbe implements BrowserTransportProbe {
+  constructor(private readonly driver: BrowserWorkerDriver) {}
+
+  async check(): Promise<BrowserWorkerHealthResponse> {
+    const ready = await this.driver.isReady();
+
+    return {
+      capabilities,
+      checkedAt: new Date().toISOString(),
+      ...(ready
+        ? {}
+        : { detail: 'The configured browser worker driver is unavailable' }),
+      status: ready ? 'online' : 'offline',
+      transport: {
+        mode: 'websocket',
+        provider: 'selkies',
+      },
+    };
   }
 }

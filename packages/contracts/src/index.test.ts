@@ -1,9 +1,14 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  browserSessionSchema,
   browserWorkerHealthResponseSchema,
+  createBrowserSessionRequestSchema,
+  createProfileRequestSchema,
   healthResponseSchema,
+  profileSchema,
   publicConfigResponseSchema,
+  updateProfileRequestSchema,
 } from './index.js';
 
 describe('API contracts', () => {
@@ -72,5 +77,61 @@ describe('API contracts', () => {
         },
       }),
     ).toThrow();
+  });
+
+  it('normalizes and accepts profile input', () => {
+    expect(
+      createProfileRequestSchema.parse({
+        avatarId: 'blue-fox',
+        name: '  Living Room  ',
+      }),
+    ).toEqual({
+      avatarId: 'blue-fox',
+      name: 'Living Room',
+    });
+
+    expect(() => updateProfileRequestSchema.parse({})).toThrow();
+  });
+
+  it('accepts persistent profiles and nullable avatar data', () => {
+    expect(
+      profileSchema.parse({
+        avatarId: null,
+        createdAt: '2026-07-28T12:00:00.000Z',
+        id: '51428272-68d9-4a9e-a242-c4f3ca1b0723',
+        name: 'Family',
+        updatedAt: '2026-07-28T12:00:00.000Z',
+      }).name,
+    ).toBe('Family');
+  });
+
+  it('distinguishes profile and Guest session requests', () => {
+    expect(
+      createBrowserSessionRequestSchema.parse({
+        kind: 'guest',
+      }),
+    ).toEqual({ kind: 'guest' });
+
+    expect(() =>
+      createBrowserSessionRequestSchema.parse({
+        kind: 'profile',
+      }),
+    ).toThrow();
+  });
+
+  it('accepts a stopped browser session', () => {
+    expect(
+      browserSessionSchema.parse({
+        createdAt: '2026-07-28T12:00:00.000Z',
+        endedAt: '2026-07-28T13:00:00.000Z',
+        failureReason: null,
+        id: '2abfc294-b100-48e1-93ad-bd34718e9a97',
+        kind: 'guest',
+        lastSeenAt: '2026-07-28T12:30:00.000Z',
+        profileId: null,
+        status: 'stopped',
+        updatedAt: '2026-07-28T13:00:00.000Z',
+      }).status,
+    ).toBe('stopped');
   });
 });

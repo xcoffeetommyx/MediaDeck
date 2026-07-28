@@ -8,9 +8,15 @@ export async function ensureStorageLayout(
   const paths = getStoragePaths(dataDirectory);
 
   await Promise.all(
-    [paths.root, paths.database, paths.profiles, paths.backups, paths.runtime].map(
-      async (path) => mkdir(path, { recursive: true }),
-    ),
+    [
+      paths.root,
+      paths.database,
+      paths.profiles,
+      paths.backups,
+      paths.runtime,
+      paths.guests,
+      paths.locks,
+    ].map(async (path) => mkdir(path, { recursive: true })),
   );
 
   return paths;

@@ -40,6 +40,19 @@ profiles concurrently. The backend uses a transport-neutral browser-worker
 contract; Selkies-specific URLs and container details do not enter profile or
 application APIs.
 
+Stage 3 creates workers through a replaceable driver. The production driver
+uses the local Docker Engine API. Each worker mounts only one existing
+subdirectory of `mediadeck-data` at `/config`:
+
+```text
+Persistent: profiles/<profile-uuid>/firefox
+Guest:      runtime/guests/<session-uuid>/firefox
+```
+
+SQLite stores profile metadata, session history, worker identity, health state,
+timestamps, and locks. Worker IDs and storage paths remain internal and are
+never included in public session responses.
+
 See [Architecture Decisions](architecture-decisions.md) for the accepted
 constraints and [Implementation Plan](implementation-plan.md) for delivery
 stages.

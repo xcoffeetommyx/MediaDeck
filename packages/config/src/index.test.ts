@@ -20,6 +20,8 @@ describe('server configuration', () => {
   it('coerces validated environment values', () => {
     const config = loadServerConfig({
       APP_VERSION: '2.0.0',
+      BROWSER_SESSION_IDLE_TIMEOUT_SECONDS: '600',
+      BROWSER_WORKER_DRIVER: 'docker',
       BROWSER_WORKER_URL: 'http://browser-worker:3000',
       DATA_DIR: './custom-data',
       NODE_ENV: 'production',
@@ -29,6 +31,11 @@ describe('server configuration', () => {
 
     expect(config.port).toBe(4242);
     expect(config.browserWorkerUrl).toBe('http://browser-worker:3000');
+    expect(config.browserWorker).toMatchObject({
+      driver: 'docker',
+      idleTimeoutSeconds: 600,
+      maxSessions: 1,
+    });
     expect(config.trustProxy).toBe(true);
     expect(config.dataDirectory).toBe(resolve('./custom-data'));
   });
@@ -40,6 +47,13 @@ describe('server configuration', () => {
   it('rejects an invalid browser worker URL', () => {
     expect(() =>
       loadServerConfig({ BROWSER_WORKER_URL: 'browser-worker:3000' }),
+    ).toThrow();
+  });
+
+  it('rejects unsafe browser session capacity and timeouts', () => {
+    expect(() => loadServerConfig({ MAX_BROWSER_SESSIONS: '0' })).toThrow();
+    expect(() =>
+      loadServerConfig({ BROWSER_SESSION_IDLE_TIMEOUT_SECONDS: '30' }),
     ).toThrow();
   });
 });

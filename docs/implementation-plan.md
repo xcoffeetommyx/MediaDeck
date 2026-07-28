@@ -66,6 +66,8 @@ optional Linux GPU override remain manual release-hardware checks; see
 
 ## Stage 3: Profiles and Session Lifecycle
 
+Status: Complete (2026-07-28)
+
 Scope:
 
 - Persistent profile CRUD
@@ -83,6 +85,12 @@ Validation:
 - A crashed worker can be recovered without corrupting the profile
 - The design can create workers keyed by session/profile rather than relying
   on a global singleton
+
+Validation completed with SQLite reopen tests, lifecycle API tests, and live
+Docker integration. A worker was removed outside MediaDeck and recovered under
+the same session ID with its Firefox marker intact. Guest data was removed
+after explicit stop and graceful Compose shutdown. See
+[Stage 3 Profiles and Sessions](stage-3-profiles-sessions.md).
 
 ## Stage 4: Controller-First Application Shell
 

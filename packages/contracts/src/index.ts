@@ -47,3 +47,82 @@ export type BrowserWorkerCapabilities = z.infer<typeof browserWorkerCapabilities
 export type BrowserWorkerHealthResponse = z.infer<
   typeof browserWorkerHealthResponseSchema
 >;
+
+export const profileNameSchema = z.string().trim().min(1).max(48);
+export const profileAvatarIdSchema = z
+  .string()
+  .trim()
+  .regex(/^[a-z0-9-]{1,32}$/);
+
+export const profileSchema = z.object({
+  avatarId: profileAvatarIdSchema.nullable(),
+  createdAt: z.iso.datetime(),
+  id: z.uuid(),
+  name: profileNameSchema,
+  updatedAt: z.iso.datetime(),
+});
+
+export const profileListResponseSchema = z.object({
+  profiles: z.array(profileSchema),
+});
+
+export const createProfileRequestSchema = z.object({
+  avatarId: profileAvatarIdSchema.nullable().optional(),
+  name: profileNameSchema,
+});
+
+export const updateProfileRequestSchema = createProfileRequestSchema
+  .partial()
+  .refine((value) => Object.keys(value).length > 0, {
+    message: 'At least one profile field is required',
+  });
+
+export type Profile = z.infer<typeof profileSchema>;
+export type ProfileListResponse = z.infer<typeof profileListResponseSchema>;
+export type CreateProfileRequest = z.infer<typeof createProfileRequestSchema>;
+export type UpdateProfileRequest = z.infer<typeof updateProfileRequestSchema>;
+
+export const browserSessionKindSchema = z.enum(['profile', 'guest']);
+export const browserSessionStatusSchema = z.enum([
+  'starting',
+  'running',
+  'stopping',
+  'stopped',
+  'failed',
+]);
+
+export const browserSessionSchema = z.object({
+  createdAt: z.iso.datetime(),
+  endedAt: z.iso.datetime().nullable(),
+  failureReason: z.string().min(1).nullable(),
+  id: z.uuid(),
+  kind: browserSessionKindSchema,
+  lastSeenAt: z.iso.datetime(),
+  profileId: z.uuid().nullable(),
+  status: browserSessionStatusSchema,
+  updatedAt: z.iso.datetime(),
+});
+
+export const browserSessionListResponseSchema = z.object({
+  sessions: z.array(browserSessionSchema),
+});
+
+export const createBrowserSessionRequestSchema = z.discriminatedUnion('kind', [
+  z.object({
+    kind: z.literal('profile'),
+    profileId: z.uuid(),
+  }),
+  z.object({
+    kind: z.literal('guest'),
+  }),
+]);
+
+export type BrowserSessionKind = z.infer<typeof browserSessionKindSchema>;
+export type BrowserSessionStatus = z.infer<typeof browserSessionStatusSchema>;
+export type BrowserSession = z.infer<typeof browserSessionSchema>;
+export type BrowserSessionListResponse = z.infer<
+  typeof browserSessionListResponseSchema
+>;
+export type CreateBrowserSessionRequest = z.infer<
+  typeof createBrowserSessionRequestSchema
+>;

@@ -1,8 +1,7 @@
 # Deployment
 
-Stage 2 provides the production application foundation and a pinned
-Firefox/Selkies browser-worker baseline. Stage 3 will replace the single
-long-lived spike worker with profile-aware session lifecycle management.
+Stage 3 provides profile-aware Firefox worker lifecycle management on top of
+the Stage 2 transport baseline.
 
 ## Start MediaDeck
 
@@ -28,26 +27,64 @@ The health endpoints are:
 - `GET /api/v1/health`
 - `GET /api/v1/browser-worker/health`
 
-## Start the Browser Worker
+## Start Profile-Aware Browser Workers
 
-Start the app and Stage 2 worker together:
+Start MediaDeck with the Stage 3 Docker worker driver:
 
 ```shell
-docker compose -f compose.yaml -f compose.browser-spike.yaml up --build -d
+docker compose -f compose.yaml -f compose.sessions.yaml up --build -d
 ```
 
-The worker:
+MediaDeck creates a worker only when a session is requested. Each worker:
 
 - runs Firefox 153 in the pinned LinuxServer Selkies image
 - uses x264 software encoding by default
-- persists its Stage 2 Firefox state in `mediadeck-browser-spike`
+- mounts only its persistent profile or temporary Guest subdirectory
 - disables the microphone, clipboard, file transfer, command execution,
   sharing, and the image's nested Docker daemon
-- binds its diagnostic ports to loopback only
+- has no host-published port
+- is labeled and named by an opaque session UUID
 
-The worker's loopback endpoint is intentionally not a standalone authentication
-boundary. Publish the service only through the trusted HTTPS path. Stage 3 will
-replace direct worker access with session-aware routing and authorization.
+The application talks to the local Docker Engine over its Unix socket. Access
+to that socket is equivalent to administrative control of the Docker host.
+Keep MediaDeck private, patch it promptly, and do not expose the API outside the
+trusted Tailscale path. A dedicated least-privilege worker manager remains a
+future hardening option.
+
+On Linux, determine the Docker socket group and set it in `.env`:
+
+```shell
+stat -c '%g' /var/run/docker.sock
+```
+
+```text
+DOCKER_GID=<reported-number>
+```
+
+The Stage 2 `compose.browser-spike.yaml` override remains a diagnostic tool. Do
+not run it together with `compose.sessions.yaml`.
+
+## Profile and Session APIs
+
+Profiles:
+
+- `GET /api/v1/profiles`
+- `POST /api/v1/profiles`
+- `GET /api/v1/profiles/:profileId`
+- `PATCH /api/v1/profiles/:profileId`
+- `DELETE /api/v1/profiles/:profileId`
+
+Sessions:
+
+- `GET /api/v1/sessions`
+- `POST /api/v1/sessions`
+- `GET /api/v1/sessions/:sessionId`
+- `POST /api/v1/sessions/:sessionId/heartbeat`
+- `POST /api/v1/sessions/:sessionId/recover`
+- `POST /api/v1/sessions/:sessionId/stop`
+
+Public responses expose the opaque session ID and lifecycle status, never the
+Docker container ID or storage path.
 
 ## Tailscale Serve
 
@@ -80,6 +117,10 @@ Browser-worker settings are listed in `.env.example`. Keep
 The optional `compose.browser-gpu.yaml` override is Linux-only and currently
 targets an Intel/AMD render node; NVIDIA requires a host-specific design.
 
+`MAX_BROWSER_SESSIONS` defaults to `1`.
+`BROWSER_SESSION_IDLE_TIMEOUT_SECONDS` defaults to `1800`; clients keep an
+active session alive through the heartbeat endpoint.
+
 ## Persistent Data
 
 The named Docker volume `mediadeck-data` is mounted at `/data`:
@@ -88,8 +129,14 @@ The named Docker volume `mediadeck-data` is mounted at `/data`:
 /data/
   backups/
   database/
+    mediadeck.sqlite
   profiles/
+    <profile-uuid>/
+      firefox/
   runtime/
+    guests/
+      <session-uuid>/
+        firefox/
 ```
 
 The application creates missing directories on startup. Do not mount the same
@@ -108,3 +155,8 @@ docker compose down
 
 The named volume is intentionally retained. Back it up before updates or
 manual maintenance.
+
+Graceful shutdown stops and removes active dynamic workers before Compose
+removes the application network. Guest directories are deleted during that
+shutdown. After an ungraceful host or application failure, startup
+reconciliation finishes interrupted stops or recovers active workers.
