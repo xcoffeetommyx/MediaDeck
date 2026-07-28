@@ -3,8 +3,13 @@ import { isAbsolute, relative, resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
 
 import type { StoragePaths } from '@mediadeck/config';
-import type { BrowserSession, CreateBrowserSessionRequest } from '@mediadeck/contracts';
+import type {
+  BrowserSession,
+  LaunchMediaApplicationRequest,
+  MediaApplicationId,
+} from '@mediadeck/contracts';
 
+import { ApplicationRegistry } from './application-registry.js';
 import type {
   BrowserWorkerDriver,
   BrowserWorkerState,
@@ -13,6 +18,7 @@ import { ConflictError, WorkerUnavailableError } from './domain-errors.js';
 import { MediaDeckStore, type StoredBrowserSession } from './store.js';
 
 type SessionManagerOptions = {
+  applications: ApplicationRegistry;
   healthIntervalSeconds: number;
   idleTimeoutSeconds: number;
   maxSessions: number;
@@ -23,10 +29,24 @@ type SessionManagerOptions = {
   workerDriver: BrowserWorkerDriver;
 };
 
+type StartBrowserSessionInput =
+  | {
+      applicationId?: MediaApplicationId | undefined;
+      kind: 'profile';
+      profileId: string;
+      sessionId?: string | undefined;
+    }
+  | {
+      applicationId?: MediaApplicationId | undefined;
+      kind: 'guest';
+      sessionId?: string | undefined;
+    };
+
 const activeStatuses = new Set(['starting', 'running', 'stopping']);
 
 function toPublicSession(session: StoredBrowserSession): BrowserSession {
   return {
+    applicationId: session.applicationId,
     createdAt: session.createdAt,
     endedAt: session.endedAt,
     failureReason: session.failureReason,
@@ -35,11 +55,13 @@ function toPublicSession(session: StoredBrowserSession): BrowserSession {
     lastSeenAt: session.lastSeenAt,
     profileId: session.profileId,
     status: session.status,
+    streamUrl: session.streamUrl,
     updatedAt: session.updatedAt,
   };
 }
 
 export class SessionManager {
+  readonly #applications: ApplicationRegistry;
   readonly #healthIntervalMilliseconds: number;
   readonly #idleTimeoutMilliseconds: number;
   readonly #maxSessions: number;
@@ -52,6 +74,7 @@ export class SessionManager {
   #timer: NodeJS.Timeout | undefined;
 
   constructor({
+    applications,
     healthIntervalSeconds,
     idleTimeoutSeconds,
     maxSessions,
@@ -61,6 +84,7 @@ export class SessionManager {
     store,
     workerDriver,
   }: SessionManagerOptions) {
+    this.#applications = applications;
     this.#healthIntervalMilliseconds = healthIntervalSeconds * 1000;
     this.#idleTimeoutMilliseconds = idleTimeoutSeconds * 1000;
     this.#maxSessions = maxSessions;
@@ -79,8 +103,9 @@ export class SessionManager {
     this.#timer.unref();
   }
 
-  async start(input: CreateBrowserSessionRequest): Promise<BrowserSession> {
-    const id = randomUUID();
+  async start(input: StartBrowserSessionInput): Promise<BrowserSession> {
+    const application = this.#applications.require(input.applicationId ?? 'youtube');
+    const id = input.sessionId ?? randomUUID();
     const timestamp = this.#now().toISOString();
     const storagePath =
       input.kind === 'profile'
@@ -93,6 +118,7 @@ export class SessionManager {
 
     const session = this.#store.createSession(
       {
+        applicationId: application.id,
         createdAt: timestamp,
         id,
         kind: input.kind,
@@ -125,12 +151,56 @@ export class SessionManager {
     }
   }
 
+  async launch(
+    applicationId: MediaApplicationId,
+    input: LaunchMediaApplicationRequest,
+  ): Promise<BrowserSession> {
+    this.#applications.require(applicationId);
+    const requestedSession = this.#store.getSession(input.sessionId);
+
+    if (requestedSession) {
+      this.assertSessionOwnership(requestedSession, applicationId, input);
+      if (activeStatuses.has(requestedSession.status)) {
+        return this.heartbeat(requestedSession.id);
+      }
+      if (requestedSession.status === 'failed') {
+        return this.recover(requestedSession.id);
+      }
+      throw new ConflictError('This browser session has already ended');
+    }
+
+    if (input.kind === 'profile') {
+      const active = this.#store.findActiveSessionByProfile(input.profileId);
+      if (active) {
+        this.assertSessionOwnership(active, applicationId, input);
+        return this.heartbeat(active.id);
+      }
+    }
+
+    return this.start({
+      applicationId,
+      ...input,
+    });
+  }
+
   list(): BrowserSession[] {
     return this.#store.listSessions().map(toPublicSession);
   }
 
   get(id: string): BrowserSession {
     return toPublicSession(this.#store.requireSession(id));
+  }
+
+  getStreamTarget(id: string): URL {
+    const session = this.#store.requireSession(id);
+    if (
+      (session.status !== 'starting' && session.status !== 'running') ||
+      !session.workerId
+    ) {
+      throw new ConflictError('This browser stream is not available');
+    }
+
+    return this.#workerDriver.getStreamTarget(session.id, session.workerId);
   }
 
   async heartbeat(id: string): Promise<BrowserSession> {
@@ -376,6 +446,7 @@ export class SessionManager {
   ): Promise<StoredBrowserSession> {
     const { workerId } = await this.#workerDriver.start({
       kind: session.kind,
+      launchUrl: this.#applications.require(session.applicationId).launchUrl,
       sessionId: session.id,
       storagePath: session.storagePath,
     });
@@ -397,6 +468,23 @@ export class SessionManager {
       updatedAt: timestamp,
       workerId: null,
     });
+  }
+
+  private assertSessionOwnership(
+    session: StoredBrowserSession,
+    applicationId: MediaApplicationId,
+    input: LaunchMediaApplicationRequest,
+  ): void {
+    const sameProfile =
+      input.kind === 'profile' && session.kind === 'profile'
+        ? session.profileId === input.profileId
+        : input.kind === 'guest' && session.kind === 'guest';
+
+    if (!sameProfile || session.applicationId !== applicationId) {
+      throw new ConflictError(
+        'This browser session belongs to a different profile or application',
+      );
+    }
   }
 
   private async cleanupGuest(session: StoredBrowserSession): Promise<void> {

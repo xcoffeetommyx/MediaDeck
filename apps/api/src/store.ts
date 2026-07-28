@@ -4,6 +4,7 @@ import type {
   BrowserSession,
   BrowserSessionKind,
   BrowserSessionStatus,
+  MediaApplicationId,
   Profile,
 } from '@mediadeck/contracts';
 
@@ -20,6 +21,7 @@ type ProfileRow = {
 };
 
 type SessionRow = {
+  application_id: MediaApplicationId;
   created_at: string;
   ended_at: string | null;
   failure_reason: string | null;
@@ -39,6 +41,7 @@ export type StoredBrowserSession = BrowserSession & {
 };
 
 export type NewStoredBrowserSession = {
+  applicationId: MediaApplicationId;
   createdAt: string;
   id: string;
   kind: BrowserSessionKind;
@@ -60,6 +63,7 @@ function mapProfile(row: ProfileRow): Profile {
 
 function mapSession(row: SessionRow): StoredBrowserSession {
   return {
+    applicationId: row.application_id,
     createdAt: row.created_at,
     endedAt: row.ended_at,
     failureReason: row.failure_reason,
@@ -69,6 +73,7 @@ function mapSession(row: SessionRow): StoredBrowserSession {
     profileId: row.profile_id,
     status: row.status,
     storagePath: row.storage_path,
+    streamUrl: `/stream/${row.id}/`,
     updatedAt: row.updated_at,
     workerId: row.worker_id,
   };
@@ -100,6 +105,7 @@ export class MediaDeckStore {
 
       CREATE TABLE IF NOT EXISTS browser_sessions (
         id TEXT PRIMARY KEY,
+        application_id TEXT NOT NULL DEFAULT 'youtube',
         kind TEXT NOT NULL CHECK(kind IN ('profile', 'guest')),
         profile_id TEXT REFERENCES profiles(id) ON DELETE RESTRICT,
         status TEXT NOT NULL CHECK(
@@ -135,7 +141,16 @@ export class MediaDeckStore {
       this.#database.exec('ALTER TABLE profiles ADD COLUMN deleted_at TEXT');
     }
 
-    this.#database.pragma('user_version = 2');
+    const sessionColumns = this.#database.pragma('table_info(browser_sessions)') as {
+      name: string;
+    }[];
+    if (!sessionColumns.some((column) => column.name === 'application_id')) {
+      this.#database.exec(
+        "ALTER TABLE browser_sessions ADD COLUMN application_id TEXT NOT NULL DEFAULT 'youtube'",
+      );
+    }
+
+    this.#database.pragma('user_version = 3');
   }
 
   close(): void {
@@ -279,13 +294,14 @@ export class MediaDeckStore {
         .prepare(
           `
             INSERT INTO browser_sessions (
-              id, kind, profile_id, status, storage_path, worker_id,
+              id, application_id, kind, profile_id, status, storage_path, worker_id,
               failure_reason, created_at, updated_at, last_seen_at, ended_at
-            ) VALUES (?, ?, ?, 'starting', ?, NULL, NULL, ?, ?, ?, NULL)
+            ) VALUES (?, ?, ?, ?, 'starting', ?, NULL, NULL, ?, ?, ?, NULL)
           `,
         )
         .run(
           session.id,
+          session.applicationId,
           session.kind,
           session.profileId,
           session.storagePath,

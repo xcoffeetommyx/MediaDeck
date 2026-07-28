@@ -5,7 +5,7 @@
 ```text
 Select profile
   -> Home
-     -> YouTube preview (Stage 5 launch follows)
+     -> YouTube
      -> Settings
      -> Updates
 ```
@@ -27,9 +27,22 @@ Home contains three primary tiles:
 - Settings
 - Updates
 
-The YouTube tile explains that the streaming launch is connected in Stage 5.
+The YouTube tile starts or resumes the selected profile's Firefox session.
 Settings reports controller, input, and Firefox-worker readiness. Updates shows
 the installed MediaDeck version and the Stage 6 update placeholder.
+
+## YouTube Viewer
+
+The viewer reserves a compact MediaDeck control bar above the remote Firefox
+surface so it never blocks YouTube search or playback controls. It shows:
+
+- profile and live video/audio state
+- reload and fullscreen actions
+- a consistent MediaDeck return action
+- launch, connection, recovery, offline, and stop-failure states
+
+Returning stops the worker. Persistent profile data remains available for the
+next launch; Guest data is deleted.
 
 ## Navigation
 

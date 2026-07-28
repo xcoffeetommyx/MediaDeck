@@ -21,6 +21,10 @@ import type {
 let dataDirectory: string;
 
 class TestBrowserWorkerDriver implements BrowserWorkerDriver {
+  getStreamTarget(sessionId: string): URL {
+    return new URL(`http://worker-${sessionId}:3000`);
+  }
+
   inspect(): Promise<'running'> {
     return Promise.resolve('running');
   }
@@ -231,6 +235,52 @@ describe('MediaDeck API', () => {
       url: `/api/v1/profiles/${profile.id}`,
     });
     expect(deletedResponse.statusCode).toBe(204);
+
+    await app.close();
+  });
+
+  it('publishes the YouTube application and launches it idempotently', async () => {
+    const driver = new TestBrowserWorkerDriver();
+    const app = await buildApplication({
+      config: createConfig(),
+      logger: false,
+      workerDriver: driver,
+    });
+
+    const applicationsResponse = await app.inject({
+      method: 'GET',
+      url: '/api/v1/applications',
+    });
+    expect(applicationsResponse.json()).toEqual({
+      applications: [
+        {
+          available: true,
+          description:
+            'Subscriptions, playlists, recommendations, and playback in isolated Firefox.',
+          displayName: 'YouTube',
+          id: 'youtube',
+        },
+      ],
+    });
+
+    const sessionId = '2abfc294-b100-48e1-93ad-bd34718e9a97';
+    const firstLaunch = await app.inject({
+      method: 'POST',
+      payload: { kind: 'guest', sessionId },
+      url: '/api/v1/applications/youtube/launch',
+    });
+    const secondLaunch = await app.inject({
+      method: 'POST',
+      payload: { kind: 'guest', sessionId },
+      url: '/api/v1/applications/youtube/launch',
+    });
+
+    expect(browserSessionSchema.parse(firstLaunch.json())).toMatchObject({
+      applicationId: 'youtube',
+      id: sessionId,
+      streamUrl: `/stream/${sessionId}/`,
+    });
+    expect(browserSessionSchema.parse(secondLaunch.json()).id).toBe(sessionId);
 
     await app.close();
   });

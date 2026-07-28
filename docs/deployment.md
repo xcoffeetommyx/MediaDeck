@@ -83,8 +83,16 @@ Sessions:
 - `POST /api/v1/sessions/:sessionId/recover`
 - `POST /api/v1/sessions/:sessionId/stop`
 
-Public responses expose the opaque session ID and lifecycle status, never the
-Docker container ID or storage path.
+Applications:
+
+- `GET /api/v1/applications`
+- `POST /api/v1/applications/youtube/launch`
+
+Active session streams are available beneath the session-scoped
+`/stream/<session-uuid>/` path. MediaDeck proxies both HTTP assets and WebSocket
+traffic to the isolated worker. Public responses expose the opaque session ID,
+application ID, lifecycle status, and stream path, never the Docker container
+ID, internal address, or storage path.
 
 ## Tailscale Serve
 

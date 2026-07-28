@@ -82,6 +82,13 @@ persistent profile. The worker driver and database support different profiles
 concurrently when the capacity setting is raised; multi-user routing and load
 validation remain Stage 7.
 
+Stage 5 assigns every worker a Selkies subfolder derived from its opaque session
+UUID. MediaDeck proxies that HTTP and WebSocket path to the worker over the
+private Compose network. Workers continue to publish no host ports, and browser
+clients never receive a container name or internal address. This routing model
+supports concurrent workers without changing public stream URLs; Stage 7 adds
+multi-user authorization and load validation.
+
 ## 4. Profile Isolation
 
 Status: Accepted

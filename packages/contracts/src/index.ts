@@ -82,6 +82,28 @@ export type ProfileListResponse = z.infer<typeof profileListResponseSchema>;
 export type CreateProfileRequest = z.infer<typeof createProfileRequestSchema>;
 export type UpdateProfileRequest = z.infer<typeof updateProfileRequestSchema>;
 
+export const mediaApplicationIdSchema = z
+  .string()
+  .trim()
+  .regex(/^[a-z0-9-]{1,32}$/);
+
+export const mediaApplicationSchema = z.object({
+  available: z.boolean(),
+  description: z.string().min(1),
+  displayName: z.string().min(1),
+  id: mediaApplicationIdSchema,
+});
+
+export const mediaApplicationListResponseSchema = z.object({
+  applications: z.array(mediaApplicationSchema),
+});
+
+export type MediaApplication = z.infer<typeof mediaApplicationSchema>;
+export type MediaApplicationId = z.infer<typeof mediaApplicationIdSchema>;
+export type MediaApplicationListResponse = z.infer<
+  typeof mediaApplicationListResponseSchema
+>;
+
 export const browserSessionKindSchema = z.enum(['profile', 'guest']);
 export const browserSessionStatusSchema = z.enum([
   'starting',
@@ -92,6 +114,7 @@ export const browserSessionStatusSchema = z.enum([
 ]);
 
 export const browserSessionSchema = z.object({
+  applicationId: mediaApplicationIdSchema,
   createdAt: z.iso.datetime(),
   endedAt: z.iso.datetime().nullable(),
   failureReason: z.string().min(1).nullable(),
@@ -100,6 +123,7 @@ export const browserSessionSchema = z.object({
   lastSeenAt: z.iso.datetime(),
   profileId: z.uuid().nullable(),
   status: browserSessionStatusSchema,
+  streamUrl: z.string().startsWith('/stream/').endsWith('/'),
   updatedAt: z.iso.datetime(),
 });
 
@@ -109,11 +133,27 @@ export const browserSessionListResponseSchema = z.object({
 
 export const createBrowserSessionRequestSchema = z.discriminatedUnion('kind', [
   z.object({
+    applicationId: mediaApplicationIdSchema.default('youtube'),
     kind: z.literal('profile'),
     profileId: z.uuid(),
+    sessionId: z.uuid().optional(),
+  }),
+  z.object({
+    applicationId: mediaApplicationIdSchema.default('youtube'),
+    kind: z.literal('guest'),
+    sessionId: z.uuid().optional(),
+  }),
+]);
+
+export const launchMediaApplicationRequestSchema = z.discriminatedUnion('kind', [
+  z.object({
+    kind: z.literal('profile'),
+    profileId: z.uuid(),
+    sessionId: z.uuid(),
   }),
   z.object({
     kind: z.literal('guest'),
+    sessionId: z.uuid(),
   }),
 ]);
 
@@ -125,4 +165,7 @@ export type BrowserSessionListResponse = z.infer<
 >;
 export type CreateBrowserSessionRequest = z.infer<
   typeof createBrowserSessionRequestSchema
+>;
+export type LaunchMediaApplicationRequest = z.infer<
+  typeof launchMediaApplicationRequestSchema
 >;

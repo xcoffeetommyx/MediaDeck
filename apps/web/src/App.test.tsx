@@ -13,6 +13,20 @@ const profile = {
   updatedAt: '2026-07-28T12:00:00.000Z',
 };
 
+const runningSession = {
+  applicationId: 'youtube',
+  createdAt: '2026-07-28T12:00:00.000Z',
+  endedAt: null,
+  failureReason: null,
+  id: '2abfc294-b100-48e1-93ad-bd34718e9a97',
+  kind: 'profile',
+  lastSeenAt: '2026-07-28T12:00:01.000Z',
+  profileId: profile.id,
+  status: 'running',
+  streamUrl: '/stream/2abfc294-b100-48e1-93ad-bd34718e9a97/',
+  updatedAt: '2026-07-28T12:00:01.000Z',
+} as const;
+
 function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
     headers: { 'Content-Type': 'application/json' },
@@ -87,6 +101,7 @@ function mockApi(profiles = [profile]) {
 
 afterEach(() => {
   cleanup();
+  sessionStorage.clear();
   vi.unstubAllGlobals();
 });
 
@@ -212,5 +227,117 @@ describe('MediaDeck application shell', () => {
 
     fireEvent.keyDown(close, { key: 'Tab', shiftKey: true });
     expect(create).toHaveFocus();
+  });
+
+  it('launches and releases a profile-scoped YouTube session', async () => {
+    const fetchMock = mockApi();
+    fetchMock.mockImplementation((input: RequestInfo | URL) => {
+      const url = requestUrl(input);
+      if (url.endsWith('/api/v1/applications/youtube/launch')) {
+        return Promise.resolve(jsonResponse(runningSession));
+      }
+      if (url.endsWith(`/api/v1/sessions/${runningSession.id}/stop`)) {
+        return Promise.resolve(
+          jsonResponse({
+            ...runningSession,
+            endedAt: '2026-07-28T12:10:00.000Z',
+            status: 'stopped',
+          }),
+        );
+      }
+      if (url.endsWith('/api/v1/health')) {
+        return Promise.resolve(
+          jsonResponse({
+            service: 'mediadeck-api',
+            status: 'ok',
+            timestamp: '2026-07-28T12:00:00.000Z',
+            uptimeSeconds: 10,
+            version: '0.1.0-test',
+          }),
+        );
+      }
+      if (url.endsWith('/api/v1/browser-worker/health')) {
+        return Promise.resolve(
+          jsonResponse({
+            capabilities: {
+              audio: true,
+              gamepad: true,
+              keyboard: true,
+              pointer: true,
+              reconnect: true,
+              touch: true,
+            },
+            checkedAt: '2026-07-28T12:00:00.000Z',
+            status: 'online',
+            transport: { mode: 'websocket', provider: 'selkies' },
+          }),
+        );
+      }
+      if (url.endsWith('/api/v1/profiles')) {
+        return Promise.resolve(jsonResponse({ profiles: [profile] }));
+      }
+      return Promise.resolve(jsonResponse({ message: 'Not found' }, 404));
+    });
+
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(await screen.findByRole('button', { name: /Tommy/ }));
+    await user.click(screen.getByRole('button', { name: 'Launch YouTube' }));
+
+    expect(
+      await screen.findByTitle('YouTube Firefox stream for Tommy'),
+    ).toHaveAttribute('src', `${runningSession.streamUrl}?viewer=0`);
+    const launchCall = fetchMock.mock.calls.find(([input]) =>
+      requestUrl(input).endsWith('/api/v1/applications/youtube/launch'),
+    );
+    expect(launchCall?.[1]?.body).toEqual(
+      expect.stringContaining(`"profileId":"${profile.id}"`),
+    );
+
+    await user.click(screen.getByRole('button', { name: /MediaDeck/ }));
+    expect(
+      await screen.findByRole('heading', { name: 'What do you want to watch?' }),
+    ).toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledWith(
+      `/api/v1/sessions/${runningSession.id}/stop`,
+      expect.objectContaining({ method: 'POST' }),
+    );
+  });
+
+  it('shows an actionable YouTube launch failure', async () => {
+    const fetchMock = mockApi();
+    fetchMock.mockImplementation((input: RequestInfo | URL) => {
+      const url = requestUrl(input);
+      if (url.endsWith('/api/v1/applications/youtube/launch')) {
+        return Promise.resolve(
+          jsonResponse({ message: 'Browser capacity is full' }, 429),
+        );
+      }
+      if (url.endsWith('/api/v1/profiles')) {
+        return Promise.resolve(jsonResponse({ profiles: [profile] }));
+      }
+      if (url.endsWith('/api/v1/health')) {
+        return Promise.resolve(
+          jsonResponse({
+            service: 'mediadeck-api',
+            status: 'ok',
+            timestamp: '2026-07-28T12:00:00.000Z',
+            uptimeSeconds: 10,
+            version: '0.1.0-test',
+          }),
+        );
+      }
+      return Promise.reject(new Error('offline'));
+    });
+
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(await screen.findByRole('button', { name: /Tommy/ }));
+    await user.click(screen.getByRole('button', { name: 'Launch YouTube' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Browser capacity is full',
+    );
+    expect(screen.getByRole('button', { name: 'Try again' })).toBeInTheDocument();
   });
 });

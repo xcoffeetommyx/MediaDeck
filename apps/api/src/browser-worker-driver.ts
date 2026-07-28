@@ -8,11 +8,13 @@ export type BrowserWorkerState =
 
 export type StartBrowserWorkerInput = {
   kind: 'profile' | 'guest';
+  launchUrl: string;
   sessionId: string;
   storagePath: string;
 };
 
 export type BrowserWorkerDriver = {
+  getStreamTarget(sessionId: string, workerId: string): URL;
   inspect(workerId: string): Promise<BrowserWorkerState>;
   isReady(): Promise<boolean>;
   start(input: StartBrowserWorkerInput): Promise<{ workerId: string }>;
@@ -20,6 +22,12 @@ export type BrowserWorkerDriver = {
 };
 
 export class DisabledBrowserWorkerDriver implements BrowserWorkerDriver {
+  getStreamTarget(): URL {
+    throw new WorkerUnavailableError(
+      'Browser worker management is disabled in this deployment',
+    );
+  }
+
   inspect(): Promise<BrowserWorkerState> {
     return Promise.resolve('missing');
   }
@@ -91,10 +99,12 @@ export class DockerBrowserWorkerDriver implements BrowserWorkerDriver {
 
   async start({
     kind,
+    launchUrl,
     sessionId,
     storagePath,
   }: StartBrowserWorkerInput): Promise<{ workerId: string }> {
     const containerName = `mediadeck-worker-${sessionId}`;
+    const streamPath = `/stream/${sessionId}/`;
 
     await this.removeByName(containerName);
 
@@ -104,7 +114,8 @@ export class DockerBrowserWorkerDriver implements BrowserWorkerDriver {
           Env: [
             'HARDEN_DESKTOP=true',
             'HARDEN_OPENBOX=true',
-            `FIREFOX_CLI=${this.config.startUrl}`,
+            `FIREFOX_CLI=--kiosk ${launchUrl}`,
+            'NO_DECOR=true',
             `PGID=${this.config.pgid}`,
             'PIXELFLUX_WAYLAND=true',
             `PUID=${this.config.puid}`,
@@ -122,6 +133,8 @@ export class DockerBrowserWorkerDriver implements BrowserWorkerDriver {
             'SELKIES_USE_CPU=true|locked',
             `SELKIES_VIDEO_BITRATE=${this.config.videoBitrate}`,
             'START_DOCKER=false',
+            `SUBFOLDER=${streamPath}`,
+            'TITLE=MediaDeck',
             `TZ=${this.config.timezone}`,
           ],
           ExposedPorts: {
@@ -137,7 +150,7 @@ export class DockerBrowserWorkerDriver implements BrowserWorkerDriver {
               '--fail',
               '--silent',
               '--show-error',
-              'http://127.0.0.1:3000/',
+              `http://127.0.0.1:3000${streamPath}`,
             ],
             Timeout: 5_000_000_000,
           },
@@ -220,6 +233,10 @@ export class DockerBrowserWorkerDriver implements BrowserWorkerDriver {
     }
 
     return status ? 'stopped' : 'missing';
+  }
+
+  getStreamTarget(sessionId: string): URL {
+    return new URL(`http://mediadeck-worker-${sessionId}:3000`);
   }
 
   async stop(workerId: string): Promise<void> {

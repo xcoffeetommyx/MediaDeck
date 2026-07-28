@@ -123,6 +123,8 @@ scrolling were verified in the production shell. See
 
 ## Stage 5: YouTube Application
 
+Status: Complete with documented target-client fullscreen follow-up (2026-07-28)
+
 Scope:
 
 - YouTube application definition
@@ -136,6 +138,16 @@ Validation:
 - Different profiles retain different YouTube accounts
 - MediaDeck chrome hides implementation details where practical
 - Playback, fullscreen behavior, audio, and reconnect behavior are reliable
+
+Validation completed with application and session contract tests, real HTTP and
+WebSocket gateway tests, a production Docker build, and a live profile and
+Guest walkthrough through the MediaDeck route. The live client reported video
+and audio active, stream reload reconnected to the same worker, Firefox kiosk
+mode hid browser chrome, persistent profile data survived application rebuilds,
+and Guest storage was removed on return. Browser fullscreen is implemented with
+an explicit failure experience; final fullscreen behavior remains a target
+client check because the embedded automation browser does not grant document
+fullscreen. See [Stage 5 YouTube Application](stage-5-youtube-application.md).
 
 ## Stage 6: Settings, Updates, and Operations
 

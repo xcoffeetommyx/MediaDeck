@@ -23,7 +23,7 @@ Development philosophy:
 
 ## Current Status
 
-Stages 1 through 4 establish:
+Stages 1 through 5 establish:
 
 - React, TypeScript, Vite, and Tailwind CSS frontend
 - Fastify backend
@@ -46,8 +46,11 @@ Stages 1 through 4 establish:
 - Spatial focus navigation for gamepad, keyboard, mouse, and touch
 - Responsive TV, tablet, desktop, and phone layouts
 - Automated interaction and accessibility checks
-
-The YouTube launch and return experience begins in Stage 5.
+- A first-class YouTube application definition
+- Opaque per-session HTTP and WebSocket stream routing
+- A kiosk-mode Firefox viewer with video, audio, reload, and fullscreen controls
+- Heartbeat, resume, recovery, and explicit return behavior
+- Persistent profile sessions and temporary Guest cleanup through the visible UI
 
 ## Quick Start
 
@@ -88,3 +91,4 @@ docker compose -f compose.yaml -f compose.sessions.yaml up --build -d
 - [Stage 2 browser transport report](docs/stage-2-browser-transport.md)
 - [Stage 3 profiles and sessions report](docs/stage-3-profiles-sessions.md)
 - [Stage 4 controller shell report](docs/stage-4-controller-shell.md)
+- [Stage 5 YouTube application report](docs/stage-5-youtube-application.md)

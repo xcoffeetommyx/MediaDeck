@@ -10,6 +10,7 @@ import type {
   BrowserWorkerState,
   StartBrowserWorkerInput,
 } from './browser-worker-driver.js';
+import { ApplicationRegistry } from './application-registry.js';
 import {
   CapacityError,
   ConflictError,
@@ -24,6 +25,10 @@ class FakeBrowserWorkerDriver implements BrowserWorkerDriver {
   failStops = false;
   readonly starts: StartBrowserWorkerInput[] = [];
   readonly states = new Map<string, BrowserWorkerState>();
+
+  getStreamTarget(sessionId: string): URL {
+    return new URL(`http://worker-${sessionId}:3000`);
+  }
 
   inspect(workerId: string): Promise<BrowserWorkerState> {
     return Promise.resolve(this.states.get(workerId) ?? 'missing');
@@ -72,6 +77,7 @@ afterEach(async () => {
 
 function createManager(maxSessions = 1): SessionManager {
   return new SessionManager({
+    applications: new ApplicationRegistry('https://www.youtube.com/'),
     healthIntervalSeconds: 300,
     idleTimeoutSeconds: 1800,
     maxSessions,
@@ -225,5 +231,39 @@ describe('session manager', () => {
     const configured = getStoragePaths(dataDirectory);
     expect(configured.databaseFile).toBe(paths.databaseFile);
     expect(configured.guests).toBe(paths.guests);
+  });
+
+  it('launches YouTube idempotently and keeps the stream route opaque', async () => {
+    const profile = await profiles.create({ name: 'Viewer' });
+    const sessions = createManager();
+    const sessionId = '2abfc294-b100-48e1-93ad-bd34718e9a97';
+
+    const launched = await sessions.launch('youtube', {
+      kind: 'profile',
+      profileId: profile.id,
+      sessionId,
+    });
+    const resumed = await sessions.launch('youtube', {
+      kind: 'profile',
+      profileId: profile.id,
+      sessionId,
+    });
+
+    expect(launched).toMatchObject({
+      applicationId: 'youtube',
+      id: sessionId,
+      streamUrl: `/stream/${sessionId}/`,
+    });
+    expect(resumed.id).toBe(sessionId);
+    expect(driver.starts).toHaveLength(1);
+    expect(driver.starts[0]).toMatchObject({
+      launchUrl: 'https://www.youtube.com/',
+      sessionId,
+    });
+    expect(sessions.getStreamTarget(sessionId).href).toBe(
+      `http://worker-${sessionId}:3000/`,
+    );
+
+    await sessions.shutdown();
   });
 });

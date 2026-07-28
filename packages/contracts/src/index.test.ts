@@ -110,7 +110,7 @@ describe('API contracts', () => {
       createBrowserSessionRequestSchema.parse({
         kind: 'guest',
       }),
-    ).toEqual({ kind: 'guest' });
+    ).toEqual({ applicationId: 'youtube', kind: 'guest' });
 
     expect(() =>
       createBrowserSessionRequestSchema.parse({
@@ -122,6 +122,7 @@ describe('API contracts', () => {
   it('accepts a stopped browser session', () => {
     expect(
       browserSessionSchema.parse({
+        applicationId: 'youtube',
         createdAt: '2026-07-28T12:00:00.000Z',
         endedAt: '2026-07-28T13:00:00.000Z',
         failureReason: null,
@@ -130,6 +131,7 @@ describe('API contracts', () => {
         lastSeenAt: '2026-07-28T12:30:00.000Z',
         profileId: null,
         status: 'stopped',
+        streamUrl: '/stream/2abfc294-b100-48e1-93ad-bd34718e9a97/',
         updatedAt: '2026-07-28T13:00:00.000Z',
       }).status,
     ).toBe('stopped');

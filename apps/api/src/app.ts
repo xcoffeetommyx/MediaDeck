@@ -10,6 +10,8 @@ import type {
 import Fastify, { type FastifyInstance } from 'fastify';
 import { ZodError } from 'zod';
 
+import { ApplicationRegistry } from './application-registry.js';
+import { registerApplicationRoutes } from './application-routes.js';
 import {
   type BrowserTransportProbe,
   DriverBrowserTransportProbe,
@@ -26,6 +28,7 @@ import { registerSessionRoutes } from './session-routes.js';
 import { SessionManager } from './session-manager.js';
 import { ensureStorageLayout } from './storage.js';
 import { MediaDeckStore } from './store.js';
+import { registerStreamGateway } from './stream-gateway.js';
 
 export type BuildApplicationOptions = {
   browserTransportProbe?: BrowserTransportProbe;
@@ -75,10 +78,12 @@ export async function buildApplication({
   const store = providedStore ?? new MediaDeckStore(paths.databaseFile);
   const workerDriver =
     providedWorkerDriver ?? createBrowserWorkerDriver(config.browserWorker);
+  const applications = new ApplicationRegistry(config.browserWorker.startUrl);
   const profileManager = new ProfileManager(store, paths);
   const sessionManager =
     providedSessionManager ??
     new SessionManager({
+      applications,
       healthIntervalSeconds: config.browserWorker.healthIntervalSeconds,
       idleTimeoutSeconds: config.browserWorker.idleTimeoutSeconds,
       maxSessions: config.browserWorker.maxSessions,
@@ -170,6 +175,8 @@ export async function buildApplication({
 
   registerProfileRoutes(app, profileManager);
   registerSessionRoutes(app, sessionManager);
+  registerApplicationRoutes(app, applications, sessionManager);
+  registerStreamGateway(app, sessionManager);
 
   if (config.publicDirectory && (await directoryExists(config.publicDirectory))) {
     await app.register(fastifyStatic, {

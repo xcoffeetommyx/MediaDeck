@@ -1,4 +1,5 @@
 import type {
+  BrowserSession,
   BrowserWorkerHealthResponse,
   HealthResponse,
   Profile,
@@ -11,13 +12,14 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from 'react';
 
 import { ApiError, requestJson } from './api';
 import { useAutoFocus, useInputNavigation } from './navigation';
 
-type View = 'profiles' | 'home' | 'settings' | 'updates';
+type View = 'profiles' | 'home' | 'settings' | 'updates' | 'youtube';
 
 type ActiveProfile = { kind: 'profile'; profile: Profile } | { kind: 'guest' };
 
@@ -26,7 +28,13 @@ type ConnectionState =
   | { status: 'online'; version: string }
   | { status: 'unavailable' };
 
-type Overlay = 'create-profile' | 'youtube' | null;
+type Overlay = 'create-profile' | null;
+
+type YouTubeResumeContext =
+  | { kind: 'guest'; sessionId: string }
+  | { kind: 'profile'; profileId: string; sessionId: string };
+
+const youtubeResumeStorageKey = 'mediadeck.youtube-session';
 
 const avatarOptions = ['ember', 'violet', 'ocean', 'forest', 'sunset', 'slate'];
 
@@ -52,6 +60,9 @@ export function App() {
   const [activeProfile, setActiveProfile] = useState<ActiveProfile | null>(null);
   const [view, setView] = useState<View>('profiles');
   const [overlay, setOverlay] = useState<Overlay>(null);
+  const [youtubeSessionId, setYoutubeSessionId] = useState<string | null>(null);
+  const resumeAttempted = useRef(false);
+  const youtubeBackHandler = useRef<(() => void) | null>(null);
 
   const loadProfiles = useCallback(async (signal?: AbortSignal) => {
     if (signal?.aborted) return;
@@ -64,6 +75,27 @@ export function App() {
         signal ? { signal } : undefined,
       );
       setProfiles(response.profiles);
+
+      if (!resumeAttempted.current) {
+        resumeAttempted.current = true;
+        const resume = readYouTubeResumeContext();
+        if (resume?.kind === 'guest') {
+          setActiveProfile({ kind: 'guest' });
+          setYoutubeSessionId(resume.sessionId);
+          setView('youtube');
+        } else if (resume?.kind === 'profile') {
+          const profile = response.profiles.find(
+            (candidate) => candidate.id === resume.profileId,
+          );
+          if (profile) {
+            setActiveProfile({ kind: 'profile', profile });
+            setYoutubeSessionId(resume.sessionId);
+            setView('youtube');
+          } else {
+            clearYouTubeResumeContext();
+          }
+        }
+      }
     } catch (error) {
       if (error instanceof DOMException && error.name === 'AbortError') return;
       setProfilesError(getErrorMessage(error, 'Profiles could not be loaded.'));
@@ -109,6 +141,10 @@ export function App() {
       setOverlay(null);
       return;
     }
+    if (view === 'youtube') {
+      youtubeBackHandler.current?.();
+      return;
+    }
     if (view === 'settings' || view === 'updates') {
       navigate('home');
       return;
@@ -121,6 +157,8 @@ export function App() {
 
   const chooseProfile = useCallback(
     (profile: Profile) => {
+      clearYouTubeResumeContext();
+      setYoutubeSessionId(null);
       setActiveProfile({ kind: 'profile', profile });
       navigate('home');
     },
@@ -128,6 +166,8 @@ export function App() {
   );
 
   const chooseGuest = useCallback(() => {
+    clearYouTubeResumeContext();
+    setYoutubeSessionId(null);
     setActiveProfile({ kind: 'guest' });
     navigate('home');
   }, [navigate]);
@@ -136,59 +176,84 @@ export function App() {
     activeProfile?.kind === 'profile' ? activeProfile.profile.name : 'Guest';
   const currentStatus = statusContent[connection.status];
 
+  const openYouTube = useCallback(() => {
+    if (!activeProfile) return;
+    const sessionId = crypto.randomUUID();
+    writeYouTubeResumeContext(
+      activeProfile.kind === 'profile'
+        ? {
+            kind: 'profile',
+            profileId: activeProfile.profile.id,
+            sessionId,
+          }
+        : { kind: 'guest', sessionId },
+    );
+    setYoutubeSessionId(sessionId);
+    navigate('youtube');
+  }, [activeProfile, navigate]);
+
+  const leaveYouTube = useCallback(() => {
+    clearYouTubeResumeContext();
+    setYoutubeSessionId(null);
+    youtubeBackHandler.current = null;
+    navigate('home');
+  }, [navigate]);
+
   return (
     <main className={`app-shell view-${view}`}>
       <div className="ambient ambient-one" aria-hidden="true" />
       <div className="ambient ambient-two" aria-hidden="true" />
 
-      <header className="topbar">
-        <button
-          className="brand focusable"
-          data-focusable="true"
-          aria-label={
-            view === 'profiles'
-              ? 'MediaDeck profile selection'
-              : 'Return to MediaDeck home'
-          }
-          onClick={() => navigate(view === 'profiles' ? 'profiles' : 'home')}
-        >
-          <span className="brand-mark" aria-hidden="true">
-            <span />
-          </span>
-          <span className="brand-name">MediaDeck</span>
-        </button>
-
-        <div className="topbar-actions">
-          {view !== 'profiles' && activeProfile ? (
-            <button
-              className="profile-chip focusable"
-              data-focusable="true"
-              onClick={() => navigate('profiles')}
-              aria-label={`Switch profile. Current profile: ${profileName}`}
-            >
-              <Avatar
-                avatarId={
-                  activeProfile.kind === 'profile'
-                    ? activeProfile.profile.avatarId
-                    : 'guest'
-                }
-                name={profileName}
-                small
-              />
-              <span>{profileName}</span>
-            </button>
-          ) : null}
-
-          <div
-            className={`status-pill status-${currentStatus.tone}`}
-            role="status"
-            aria-live="polite"
+      {view !== 'youtube' ? (
+        <header className="topbar">
+          <button
+            className="brand focusable"
+            data-focusable="true"
+            aria-label={
+              view === 'profiles'
+                ? 'MediaDeck profile selection'
+                : 'Return to MediaDeck home'
+            }
+            onClick={() => navigate(view === 'profiles' ? 'profiles' : 'home')}
           >
-            <span className="status-dot" aria-hidden="true" />
-            <span>{currentStatus.label}</span>
+            <span className="brand-mark" aria-hidden="true">
+              <span />
+            </span>
+            <span className="brand-name">MediaDeck</span>
+          </button>
+
+          <div className="topbar-actions">
+            {view !== 'profiles' && activeProfile ? (
+              <button
+                className="profile-chip focusable"
+                data-focusable="true"
+                onClick={() => navigate('profiles')}
+                aria-label={`Switch profile. Current profile: ${profileName}`}
+              >
+                <Avatar
+                  avatarId={
+                    activeProfile.kind === 'profile'
+                      ? activeProfile.profile.avatarId
+                      : 'guest'
+                  }
+                  name={profileName}
+                  small
+                />
+                <span>{profileName}</span>
+              </button>
+            ) : null}
+
+            <div
+              className={`status-pill status-${currentStatus.tone}`}
+              role="status"
+              aria-live="polite"
+            >
+              <span className="status-dot" aria-hidden="true" />
+              <span>{currentStatus.label}</span>
+            </div>
           </div>
-        </div>
-      </header>
+        </header>
+      ) : null}
 
       <div className="view-frame">
         {view === 'profiles' ? (
@@ -208,7 +273,18 @@ export function App() {
             name={profileName}
             onOpenSettings={() => navigate('settings')}
             onOpenUpdates={() => navigate('updates')}
-            onOpenYouTube={() => setOverlay('youtube')}
+            onOpenYouTube={openYouTube}
+          />
+        ) : null}
+
+        {view === 'youtube' && activeProfile && youtubeSessionId ? (
+          <YouTubeView
+            activeProfile={activeProfile}
+            initialSessionId={youtubeSessionId}
+            onExit={leaveYouTube}
+            registerBackHandler={(handler) => {
+              youtubeBackHandler.current = handler;
+            }}
           />
         ) : null}
 
@@ -228,27 +304,29 @@ export function App() {
         ) : null}
       </div>
 
-      <footer className="input-legend" aria-label="Navigation help">
-        <span>
-          <kbd>←</kbd>
-          <kbd>↑</kbd>
-          <kbd>↓</kbd>
-          <kbd>→</kbd>
-          <span>Navigate</span>
-        </span>
-        <span>
-          <kbd>A</kbd>
-          <span>Select</span>
-        </span>
-        <span>
-          <kbd>B</kbd>
-          <span>Back</span>
-        </span>
-        <span className={controllerConnected ? 'controller-live' : ''}>
-          <i aria-hidden="true" />
-          {controllerConnected ? 'Controller connected' : 'Keyboard · touch · mouse'}
-        </span>
-      </footer>
+      {view !== 'youtube' ? (
+        <footer className="input-legend" aria-label="Navigation help">
+          <span>
+            <kbd>←</kbd>
+            <kbd>↑</kbd>
+            <kbd>↓</kbd>
+            <kbd>→</kbd>
+            <span>Navigate</span>
+          </span>
+          <span>
+            <kbd>A</kbd>
+            <span>Select</span>
+          </span>
+          <span>
+            <kbd>B</kbd>
+            <span>Back</span>
+          </span>
+          <span className={controllerConnected ? 'controller-live' : ''}>
+            <i aria-hidden="true" />
+            {controllerConnected ? 'Controller connected' : 'Keyboard · touch · mouse'}
+          </span>
+        </footer>
+      ) : null}
 
       {overlay === 'create-profile' ? (
         <CreateProfileDialog
@@ -260,33 +338,414 @@ export function App() {
           }}
         />
       ) : null}
-
-      {overlay === 'youtube' ? (
-        <Modal
-          label="YouTube"
-          onClose={() => setOverlay(null)}
-          className="youtube-modal"
-        >
-          <div className="modal-app-icon youtube-icon" aria-hidden="true">
-            <span />
-          </div>
-          <p className="eyebrow">Up next · Stage 5</p>
-          <h2>YouTube is ready for its launch flow.</h2>
-          <p className="modal-copy">
-            The profile and controller shell are in place. Stage 5 connects this tile to
-            your isolated Firefox stream.
-          </p>
-          <button
-            className="primary-button focusable"
-            data-focusable="true"
-            data-autofocus="true"
-            onClick={() => setOverlay(null)}
-          >
-            Got it
-          </button>
-        </Modal>
-      ) : null}
     </main>
+  );
+}
+
+type YouTubeViewProperties = {
+  activeProfile: ActiveProfile;
+  initialSessionId: string;
+  onExit: () => void;
+  registerBackHandler: (handler: () => void) => void;
+};
+
+function YouTubeView({
+  activeProfile,
+  initialSessionId,
+  onExit,
+  registerBackHandler,
+}: YouTubeViewProperties) {
+  const [session, setSession] = useState<BrowserSession | null>(null);
+  const [launchError, setLaunchError] = useState<string | null>(null);
+  const [connectionError, setConnectionError] = useState<string | null>(null);
+  const [frameLoaded, setFrameLoaded] = useState(false);
+  const [entered, setEntered] = useState(false);
+  const [videoActive, setVideoActive] = useState(false);
+  const [audioActive, setAudioActive] = useState(false);
+  const [frameKey, setFrameKey] = useState(0);
+  const [recovering, setRecovering] = useState(false);
+  const [exitRequested, setExitRequested] = useState(false);
+  const [exitError, setExitError] = useState<string | null>(null);
+  const [fullscreenError, setFullscreenError] = useState<string | null>(null);
+  const iframeRef = useRef<HTMLIFrameElement>(null);
+  const stageRef = useRef<HTMLElement>(null);
+  const launchInFlight = useRef(false);
+
+  const launch = useCallback(async () => {
+    if (launchInFlight.current) return;
+    launchInFlight.current = true;
+    setLaunchError(null);
+    setConnectionError(null);
+
+    try {
+      const nextSession = await requestJson<BrowserSession>(
+        '/api/v1/applications/youtube/launch',
+        {
+          body: JSON.stringify(
+            activeProfile.kind === 'profile'
+              ? {
+                  kind: 'profile',
+                  profileId: activeProfile.profile.id,
+                  sessionId: initialSessionId,
+                }
+              : { kind: 'guest', sessionId: initialSessionId },
+          ),
+          headers: { 'Content-Type': 'application/json' },
+          method: 'POST',
+        },
+      );
+      setSession(nextSession);
+      writeYouTubeResumeContext(
+        nextSession.kind === 'profile' && nextSession.profileId
+          ? {
+              kind: 'profile',
+              profileId: nextSession.profileId,
+              sessionId: nextSession.id,
+            }
+          : { kind: 'guest', sessionId: nextSession.id },
+      );
+    } catch (error) {
+      setLaunchError(getErrorMessage(error, 'YouTube could not be started.'));
+    } finally {
+      launchInFlight.current = false;
+    }
+  }, [activeProfile, initialSessionId]);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => void launch(), 0);
+    return () => window.clearTimeout(timer);
+  }, [launch]);
+
+  useEffect(() => {
+    if (!session || session.status === 'stopped' || exitRequested) return;
+
+    const delay = session.status === 'running' ? 10_000 : 1_500;
+    const timer = window.setTimeout(() => {
+      void requestJson<BrowserSession>(`/api/v1/sessions/${session.id}/heartbeat`, {
+        method: 'POST',
+      })
+        .then((nextSession) => {
+          setSession(nextSession);
+          setConnectionError(null);
+        })
+        .catch((error: unknown) => {
+          setConnectionError(
+            getErrorMessage(error, 'The Firefox session stopped responding.'),
+          );
+        });
+    }, delay);
+
+    return () => window.clearTimeout(timer);
+  }, [connectionError, exitRequested, session]);
+
+  const stopAndExit = useCallback(async () => {
+    if (!session) return;
+    setExitError(null);
+    try {
+      await requestJson<BrowserSession>(`/api/v1/sessions/${session.id}/stop`, {
+        method: 'POST',
+      });
+      onExit();
+    } catch (error) {
+      setExitRequested(false);
+      setExitError(
+        getErrorMessage(error, 'Firefox could not be stopped. Please try again.'),
+      );
+    }
+  }, [onExit, session]);
+
+  const requestExit = useCallback(() => {
+    setExitRequested(true);
+  }, []);
+
+  useEffect(() => {
+    registerBackHandler(requestExit);
+  }, [registerBackHandler, requestExit]);
+
+  useEffect(() => {
+    if (!exitRequested) return;
+    const timer = window.setTimeout(() => {
+      if (session) {
+        void stopAndExit();
+      } else if (launchError) {
+        onExit();
+      }
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [exitRequested, launchError, onExit, session, stopAndExit]);
+
+  const applyPipelineStatus = useCallback((message: unknown) => {
+    if (
+      !message ||
+      typeof message !== 'object' ||
+      !('type' in message) ||
+      message.type !== 'pipelineStatusUpdate'
+    ) {
+      return;
+    }
+
+    if ('video' in message && typeof message.video === 'boolean') {
+      setVideoActive(message.video);
+    }
+    if ('audio' in message && typeof message.audio === 'boolean') {
+      setAudioActive(message.audio);
+    }
+  }, []);
+
+  useEffect(() => {
+    const handleStreamMessage = (event: MessageEvent<unknown>) =>
+      applyPipelineStatus(event.data);
+
+    window.addEventListener('message', handleStreamMessage);
+    return () => window.removeEventListener('message', handleStreamMessage);
+  }, [applyPipelineStatus]);
+
+  const handleFrameLoad = useCallback(() => {
+    const frameDocument = iframeRef.current?.contentDocument;
+    const isSelkiesClient = Boolean(frameDocument?.querySelector('#app'));
+    setFrameLoaded(isSelkiesClient);
+    if (!isSelkiesClient) {
+      setConnectionError('The Firefox viewer did not load correctly.');
+    }
+
+    const frameWindow = iframeRef.current?.contentWindow;
+    frameWindow?.addEventListener('message', (event) => {
+      applyPipelineStatus(event.data);
+    });
+    frameWindow?.addEventListener('keydown', (event) => {
+      if (event.key === 'Escape') requestExit();
+    });
+  }, [applyPipelineStatus, requestExit]);
+
+  const enterStream = useCallback(() => {
+    setEntered(true);
+    const frameDocument = iframeRef.current?.contentDocument;
+    frameDocument?.querySelector<HTMLButtonElement>('#playButton')?.click();
+    (
+      frameDocument?.querySelector<HTMLElement>('#overlayInput') ??
+      frameDocument?.querySelector<HTMLElement>('#videoCanvas')
+    )?.focus();
+  }, []);
+
+  const reloadStream = useCallback(() => {
+    setFrameLoaded(false);
+    setVideoActive(false);
+    setAudioActive(false);
+    setConnectionError(null);
+    setFrameKey((current) => current + 1);
+  }, []);
+
+  const recover = useCallback(async () => {
+    if (!session || recovering) return;
+    setRecovering(true);
+    setConnectionError(null);
+    try {
+      const recovered = await requestJson<BrowserSession>(
+        `/api/v1/sessions/${session.id}/recover`,
+        { method: 'POST' },
+      );
+      setSession(recovered);
+      reloadStream();
+    } catch (error) {
+      setConnectionError(
+        getErrorMessage(error, 'The Firefox session could not be recovered.'),
+      );
+    } finally {
+      setRecovering(false);
+    }
+  }, [recovering, reloadStream, session]);
+
+  const enterFullscreen = useCallback(async () => {
+    const stage = stageRef.current;
+    if (!stage?.requestFullscreen) {
+      setFullscreenError('Fullscreen is not available in this browser.');
+      return;
+    }
+
+    try {
+      await stage.requestFullscreen();
+      setFullscreenError(null);
+    } catch {
+      setFullscreenError(
+        'Fullscreen was blocked. You can still use the browser’s own fullscreen control.',
+      );
+    }
+  }, []);
+
+  const profileName =
+    activeProfile.kind === 'profile' ? activeProfile.profile.name : 'Guest';
+  const isStarting = !session || session.status === 'starting';
+  const streamStatus = connectionError
+    ? 'Reconnecting'
+    : videoActive
+      ? audioActive
+        ? 'Live · audio on'
+        : 'Live'
+      : session?.status === 'running'
+        ? 'Connecting'
+        : 'Starting Firefox';
+
+  useAutoFocus(
+    `youtube:${session?.status ?? 'launching'}:${frameLoaded}:${entered}:${Boolean(
+      launchError ?? connectionError ?? exitError,
+    )}`,
+  );
+
+  return (
+    <section
+      className="youtube-view"
+      aria-label={`YouTube for ${profileName}`}
+      ref={stageRef}
+    >
+      {session?.status === 'running' ? (
+        <iframe
+          allow="autoplay; fullscreen; gamepad"
+          allowFullScreen
+          className="stream-frame"
+          key={frameKey}
+          onLoad={handleFrameLoad}
+          ref={iframeRef}
+          src={`${session.streamUrl}?viewer=${frameKey}`}
+          title={`YouTube Firefox stream for ${profileName}`}
+        />
+      ) : null}
+
+      <div className="stream-toolbar">
+        <button
+          className="stream-control stream-return focusable"
+          data-autofocus="true"
+          data-focusable="true"
+          disabled={exitRequested}
+          onClick={requestExit}
+        >
+          <span aria-hidden="true">←</span>
+          {exitRequested ? 'Closing…' : 'MediaDeck'}
+        </button>
+
+        <div className="stream-session-status" role="status" aria-live="polite">
+          <span
+            className={`stream-status-dot ${videoActive ? 'live' : ''}`}
+            aria-hidden="true"
+          />
+          <span>{streamStatus}</span>
+          <strong>{profileName}</strong>
+        </div>
+
+        <div className="stream-actions">
+          <button
+            aria-label="Reload YouTube stream"
+            className="stream-control focusable"
+            data-focusable="true"
+            onClick={reloadStream}
+          >
+            Reload
+          </button>
+          <button
+            aria-label="Enter fullscreen"
+            className="stream-control focusable"
+            data-focusable="true"
+            onClick={() => void enterFullscreen()}
+          >
+            Fullscreen
+          </button>
+        </div>
+      </div>
+
+      {!entered || launchError || exitError || (connectionError && !videoActive) ? (
+        <div className="stream-state-layer">
+          <div className="stream-state-card" role={launchError ? 'alert' : 'status'}>
+            <div className="modal-app-icon youtube-icon" aria-hidden="true">
+              <span />
+            </div>
+            <p className="eyebrow">{profileName} · private session</p>
+            <h1>
+              {launchError
+                ? 'YouTube could not start.'
+                : exitError
+                  ? 'Firefox is still running.'
+                  : connectionError
+                    ? 'The stream lost its connection.'
+                    : frameLoaded
+                      ? 'YouTube is ready.'
+                      : 'Starting Firefox…'}
+            </h1>
+            <p>
+              {exitError ??
+                launchError ??
+                connectionError ??
+                (isStarting
+                  ? 'Preparing your isolated Firefox profile and secure stream.'
+                  : 'Connecting video, audio, and input through MediaDeck.')}
+            </p>
+
+            <div className="stream-state-actions">
+              {exitError ? (
+                <button
+                  className="primary-button focusable"
+                  data-autofocus="true"
+                  data-focusable="true"
+                  onClick={requestExit}
+                >
+                  Try closing again
+                </button>
+              ) : null}
+              {launchError ? (
+                <button
+                  className="primary-button focusable"
+                  data-autofocus="true"
+                  data-focusable="true"
+                  onClick={() => void launch()}
+                >
+                  Try again
+                </button>
+              ) : null}
+              {connectionError && session ? (
+                <button
+                  className="primary-button focusable"
+                  data-autofocus="true"
+                  data-focusable="true"
+                  disabled={recovering}
+                  onClick={() => void recover()}
+                >
+                  {recovering ? 'Recovering…' : 'Recover Firefox'}
+                </button>
+              ) : null}
+              {!launchError && !connectionError && frameLoaded ? (
+                <button
+                  className="primary-button focusable"
+                  data-autofocus="true"
+                  data-focusable="true"
+                  onClick={enterStream}
+                >
+                  Enter YouTube
+                </button>
+              ) : null}
+              {!frameLoaded && !launchError && !connectionError ? (
+                <span className="stream-loader" aria-hidden="true" />
+              ) : null}
+            </div>
+
+            {exitError ? (
+              <p className="form-error" role="alert">
+                {exitError}
+              </p>
+            ) : null}
+          </div>
+        </div>
+      ) : null}
+
+      {entered && connectionError && videoActive ? (
+        <div className="stream-toast" role="status">
+          Stream connection is recovering automatically.
+        </div>
+      ) : null}
+
+      {fullscreenError ? (
+        <div className="stream-toast stream-toast-error" role="status">
+          {fullscreenError}
+        </div>
+      ) : null}
+    </section>
   );
 }
 
@@ -411,13 +870,13 @@ function Home({
 
       <div className="app-grid">
         <button
-          aria-label="YouTube. Open preview"
+          aria-label="Launch YouTube"
           className="app-card youtube-card focusable"
           data-focusable="true"
           data-autofocus="true"
           onClick={onOpenYouTube}
         >
-          <span className="app-card-status">Stage 5</span>
+          <span className="app-card-status">Ready</span>
           <span className="youtube-wordmark" aria-hidden="true">
             <span className="youtube-play">
               <i />
@@ -428,7 +887,7 @@ function Home({
             Your subscriptions, playlists, and recommendations in Firefox.
           </span>
           <span className="app-card-action">
-            Open preview <b>→</b>
+            Start watching <b>→</b>
           </span>
         </button>
 
@@ -822,4 +1281,38 @@ function getErrorMessage(error: unknown, fallback: string): string {
 
 function capitalize(value: string): string {
   return `${value.charAt(0).toUpperCase()}${value.slice(1)}`;
+}
+
+function readYouTubeResumeContext(): YouTubeResumeContext | null {
+  try {
+    const stored = sessionStorage.getItem(youtubeResumeStorageKey);
+    if (!stored) return null;
+    const parsed = JSON.parse(stored) as Partial<YouTubeResumeContext>;
+    if (
+      typeof parsed.sessionId !== 'string' ||
+      (parsed.kind !== 'guest' && parsed.kind !== 'profile')
+    ) {
+      return null;
+    }
+    if (parsed.kind === 'profile') {
+      return typeof parsed.profileId === 'string'
+        ? {
+            kind: 'profile',
+            profileId: parsed.profileId,
+            sessionId: parsed.sessionId,
+          }
+        : null;
+    }
+    return { kind: 'guest', sessionId: parsed.sessionId };
+  } catch {
+    return null;
+  }
+}
+
+function writeYouTubeResumeContext(context: YouTubeResumeContext): void {
+  sessionStorage.setItem(youtubeResumeStorageKey, JSON.stringify(context));
+}
+
+function clearYouTubeResumeContext(): void {
+  sessionStorage.removeItem(youtubeResumeStorageKey);
 }

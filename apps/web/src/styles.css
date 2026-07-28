@@ -953,6 +953,192 @@ button:not(:disabled) {
   font-size: 2rem;
 }
 
+.view-youtube {
+  overflow: hidden;
+  background: #020306;
+}
+
+.view-youtube .ambient {
+  display: none;
+}
+
+.view-youtube .view-frame {
+  width: 100%;
+  min-height: 100dvh;
+  padding: 0;
+}
+
+.youtube-view {
+  position: relative;
+  width: 100%;
+  min-height: 100dvh;
+  overflow: hidden;
+  background: #020306;
+}
+
+.stream-frame {
+  display: block;
+  width: 100%;
+  height: calc(100dvh - 4.25rem);
+  margin-top: 4.25rem;
+  border: 0;
+  background: #020306;
+}
+
+.stream-toolbar {
+  display: grid;
+  position: absolute;
+  z-index: 5;
+  top: 0;
+  right: 0;
+  left: 0;
+  min-height: 4.25rem;
+  align-items: center;
+  padding: 0.75rem;
+  grid-template-columns: 1fr auto 1fr;
+  gap: 0.75rem;
+  background: rgba(2, 3, 6, 0.96);
+  pointer-events: none;
+}
+
+.stream-control,
+.stream-session-status {
+  display: inline-flex;
+  min-height: 2.75rem;
+  align-items: center;
+  padding: 0.45rem 0.8rem;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 999px;
+  gap: 0.5rem;
+  background: rgba(8, 11, 17, 0.82);
+  color: #d8dde6;
+  font-size: 0.75rem;
+  font-weight: 700;
+  backdrop-filter: blur(14px);
+  pointer-events: auto;
+}
+
+.stream-control:disabled {
+  cursor: wait;
+  opacity: 0.65;
+}
+
+.stream-return {
+  justify-self: start;
+}
+
+.stream-session-status {
+  justify-self: center;
+  color: #aeb6c3;
+  pointer-events: none;
+}
+
+.stream-session-status strong {
+  padding-left: 0.55rem;
+  border-left: 1px solid rgba(255, 255, 255, 0.12);
+  color: #f6f8fc;
+}
+
+.stream-status-dot {
+  width: 0.48rem;
+  height: 0.48rem;
+  border-radius: 50%;
+  background: #e4b85a;
+}
+
+.stream-status-dot.live {
+  background: #61d59b;
+  box-shadow: 0 0 0 0.25rem rgba(97, 213, 155, 0.09);
+}
+
+.stream-actions {
+  display: flex;
+  justify-self: end;
+  gap: 0.5rem;
+  pointer-events: none;
+}
+
+.stream-state-layer {
+  display: grid;
+  position: absolute;
+  z-index: 4;
+  inset: 0;
+  place-items: center;
+  padding: 5rem 1rem 1rem;
+  background:
+    radial-gradient(circle at 50% 42%, rgba(176, 31, 56, 0.16), transparent 24rem),
+    rgba(3, 5, 9, 0.94);
+}
+
+.stream-state-card {
+  width: min(100%, 36rem);
+  text-align: center;
+}
+
+.stream-state-card .eyebrow {
+  margin-top: 1.6rem;
+}
+
+.stream-state-card h1 {
+  margin: 0;
+  font-size: clamp(2rem, 5vw, 3.6rem);
+  line-height: 1;
+  letter-spacing: -0.05em;
+}
+
+.stream-state-card > p:not(.eyebrow, .form-error) {
+  max-width: 32rem;
+  margin: 1rem auto 0;
+  color: #929baa;
+  line-height: 1.65;
+}
+
+.stream-state-actions {
+  display: flex;
+  min-height: 4.5rem;
+  align-items: center;
+  justify-content: center;
+  margin-top: 1.5rem;
+}
+
+.stream-state-actions .primary-button {
+  min-width: 12rem;
+}
+
+.stream-loader {
+  width: 2rem;
+  height: 2rem;
+  border: 2px solid rgba(255, 255, 255, 0.16);
+  border-top-color: #fff;
+  border-radius: 50%;
+  animation: stream-spin 800ms linear infinite;
+}
+
+.stream-toast {
+  position: absolute;
+  z-index: 6;
+  right: 1rem;
+  bottom: 1rem;
+  padding: 0.75rem 1rem;
+  border: 1px solid rgba(228, 184, 90, 0.25);
+  border-radius: 0.85rem;
+  background: rgba(22, 18, 9, 0.9);
+  color: #e2cca1;
+  font-size: 0.78rem;
+}
+
+.stream-toast-error {
+  border-color: rgba(243, 109, 127, 0.28);
+  background: rgba(45, 14, 21, 0.92);
+  color: #f0b5bf;
+}
+
+@keyframes stream-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 .focusable {
   transition:
     transform 150ms ease,
@@ -1070,6 +1256,18 @@ button:not(:disabled) {
   .error-banner {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .stream-toolbar {
+    grid-template-columns: 1fr auto;
+  }
+
+  .stream-session-status {
+    display: none;
+  }
+
+  .stream-actions .stream-control:first-child {
+    display: none;
   }
 }
 
