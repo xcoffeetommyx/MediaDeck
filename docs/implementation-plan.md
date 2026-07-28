@@ -94,6 +94,8 @@ after explicit stop and graceful Compose shutdown. See
 
 ## Stage 4: Controller-First Application Shell
 
+Status: Complete (2026-07-28)
+
 Scope:
 
 - Profile selection
@@ -111,6 +113,13 @@ Validation:
 - Back navigation is consistent
 - Touch targets and text remain usable at supported sizes
 - Accessibility checks pass
+
+Validation completed with component interaction tests, Gamepad mapping tests,
+automated axe-core checks, a production Docker build, and live responsive
+browser checks at TV, tablet, and phone sizes. Profile creation was exercised
+against the real SQLite API. Focus, Back behavior, and controller-style
+scrolling were verified in the production shell. See
+[Stage 4 Controller Shell](stage-4-controller-shell.md).
 
 ## Stage 5: YouTube Application
 

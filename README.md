@@ -23,7 +23,7 @@ Development philosophy:
 
 ## Current Status
 
-Stages 1 through 3 establish:
+Stages 1 through 4 establish:
 
 - React, TypeScript, Vite, and Tailwind CSS frontend
 - Fastify backend
@@ -40,8 +40,14 @@ Stages 1 through 3 establish:
 - Ephemeral Guest sessions with automatic cleanup
 - Profile locks, idle shutdown, health monitoring, and crash recovery
 - Docker workers keyed by opaque session IDs
+- A profile picker backed by the persistent profile API
+- A temporary Guest path and in-app profile creation
+- A controller-first home screen with Settings and Updates placeholders
+- Spatial focus navigation for gamepad, keyboard, mouse, and touch
+- Responsive TV, tablet, desktop, and phone layouts
+- Automated interaction and accessibility checks
 
-The controller-first application shell begins in Stage 4.
+The YouTube launch and return experience begins in Stage 5.
 
 ## Quick Start
 
@@ -81,3 +87,4 @@ docker compose -f compose.yaml -f compose.sessions.yaml up --build -d
 - [Deployment guide](docs/deployment.md)
 - [Stage 2 browser transport report](docs/stage-2-browser-transport.md)
 - [Stage 3 profiles and sessions report](docs/stage-3-profiles-sessions.md)
+- [Stage 4 controller shell report](docs/stage-4-controller-shell.md)

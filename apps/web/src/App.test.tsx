@@ -1,49 +1,216 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import axe from 'axe-core';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { App } from './App';
 
+const profile = {
+  avatarId: 'ocean',
+  createdAt: '2026-07-28T12:00:00.000Z',
+  id: '8417990e-73dd-4d70-894f-d1bc1425d7de',
+  name: 'Tommy',
+  updatedAt: '2026-07-28T12:00:00.000Z',
+};
+
+function jsonResponse(body: unknown, status = 200): Response {
+  return new Response(JSON.stringify(body), {
+    headers: { 'Content-Type': 'application/json' },
+    status,
+  });
+}
+
+function requestUrl(input: RequestInfo | URL): string {
+  if (typeof input === 'string') return input;
+  return input instanceof URL ? input.href : input.url;
+}
+
+function mockApi(profiles = [profile]) {
+  const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+    const url = requestUrl(input);
+    if (url.endsWith('/api/v1/health')) {
+      return Promise.resolve(
+        jsonResponse({
+          service: 'mediadeck-api',
+          status: 'ok',
+          timestamp: '2026-07-28T12:00:00.000Z',
+          uptimeSeconds: 10,
+          version: '0.1.0-test',
+        }),
+      );
+    }
+    if (url.endsWith('/api/v1/browser-worker/health')) {
+      return Promise.resolve(
+        jsonResponse({
+          capabilities: {
+            audio: true,
+            gamepad: false,
+            keyboard: true,
+            pointer: true,
+            reconnect: true,
+            touch: true,
+          },
+          checkedAt: '2026-07-28T12:00:00.000Z',
+          status: 'online',
+          transport: { mode: 'websocket', provider: 'selkies' },
+        }),
+      );
+    }
+    if (url.endsWith('/api/v1/profiles') && init?.method === 'POST') {
+      if (typeof init.body !== 'string') {
+        throw new TypeError('Expected a JSON request body');
+      }
+      const body = JSON.parse(init.body) as {
+        avatarId: string;
+        name: string;
+      };
+      return Promise.resolve(
+        jsonResponse(
+          {
+            ...profile,
+            avatarId: body.avatarId,
+            id: '3a641074-3901-480f-a2ce-b732c6e03f06',
+            name: body.name,
+          },
+          201,
+        ),
+      );
+    }
+    if (url.endsWith('/api/v1/profiles')) {
+      return Promise.resolve(jsonResponse({ profiles }));
+    }
+    return Promise.resolve(jsonResponse({ message: 'Not found' }, 404));
+  });
+  vi.stubGlobal('fetch', fetchMock);
+  return fetchMock;
+}
+
 afterEach(() => {
+  cleanup();
   vi.unstubAllGlobals();
 });
 
-describe('MediaDeck landing page', () => {
-  it('introduces the product and reports a healthy API', async () => {
-    vi.stubGlobal(
-      'fetch',
-      vi.fn().mockResolvedValue(
-        new Response(
-          JSON.stringify({
-            service: 'mediadeck-api',
-            status: 'ok',
-            timestamp: '2026-07-28T12:00:00.000Z',
-            uptimeSeconds: 10,
-            version: '0.1.0-test',
-          }),
-          {
-            headers: { 'Content-Type': 'application/json' },
-            status: 200,
-          },
-        ),
-      ),
-    );
-
+describe('MediaDeck application shell', () => {
+  it('loads real profiles and enters the home screen', async () => {
+    mockApi();
+    const user = userEvent.setup();
     render(<App />);
 
-    expect(screen.getByRole('heading', { name: /your media/i })).toBeInTheDocument();
-    await waitFor(() => {
-      expect(screen.getAllByText('Foundation online')).toHaveLength(2);
-    });
-    expect(screen.getByText('v0.1.0-test')).toBeInTheDocument();
+    expect(
+      screen.getByRole('heading', { name: 'Who’s watching?' }),
+    ).toBeInTheDocument();
+    await user.click(await screen.findByRole('button', { name: /Tommy/ }));
+
+    expect(
+      screen.getByRole('heading', { name: 'What do you want to watch?' }),
+    ).toBeInTheDocument();
+    expect(screen.getByText('Welcome, Tommy')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /YouTube/ })).toBeInTheDocument();
+    expect(screen.getByText('MediaDeck online')).toBeInTheDocument();
   });
 
-  it('shows an unavailable state when the API cannot be reached', async () => {
-    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('offline')));
-
+  it('creates a profile and selects it immediately', async () => {
+    const fetchMock = mockApi([]);
+    const user = userEvent.setup();
     render(<App />);
 
+    await user.click(await screen.findByRole('button', { name: /Add profile/ }));
+    await user.type(screen.getByLabelText('Profile name'), 'Lily');
+    await user.click(screen.getByRole('button', { name: 'Use violet avatar' }));
+    await user.click(screen.getByRole('button', { name: 'Create profile' }));
+
     await waitFor(() => {
-      expect(screen.getAllByText('Service unavailable')).toHaveLength(2);
+      expect(
+        screen.queryByRole('dialog', { name: 'Create profile' }),
+      ).not.toBeInTheDocument();
     });
+    expect(screen.getByText('Welcome, Lily')).toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/v1/profiles',
+      expect.objectContaining({ method: 'POST' }),
+    );
+  });
+
+  it('uses directional keys and consistent back navigation', async () => {
+    mockApi();
+    const user = userEvent.setup();
+    render(<App />);
+
+    const profileButton = await screen.findByRole('button', { name: /Tommy/ });
+    await waitFor(() => expect(profileButton).toHaveFocus());
+    await user.click(profileButton);
+
+    const youtube = screen.getByRole('button', { name: /YouTube/ });
+    await waitFor(() => expect(youtube).toHaveFocus());
+    fireEvent.keyDown(window, { key: 'ArrowRight' });
+    expect(screen.getByRole('button', { name: /Settings/ })).toHaveFocus();
+
+    await user.click(screen.getByRole('button', { name: /Settings/ }));
+    expect(screen.getByRole('heading', { name: 'Settings' })).toBeInTheDocument();
+    fireEvent.keyDown(window, { key: 'Escape' });
+    expect(
+      screen.getByRole('heading', { name: 'What do you want to watch?' }),
+    ).toBeInTheDocument();
+    fireEvent.keyDown(window, { key: 'Backspace' });
+    expect(
+      screen.getByRole('heading', { name: 'Who’s watching?' }),
+    ).toBeInTheDocument();
+  });
+
+  it('keeps Guest available when profile loading fails', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((input: RequestInfo | URL) => {
+        if (requestUrl(input).endsWith('/api/v1/profiles')) {
+          return Promise.resolve(
+            jsonResponse({ message: 'Database unavailable' }, 503),
+          );
+        }
+        return Promise.reject(new Error('offline'));
+      }),
+    );
+    const user = userEvent.setup();
+    render(<App />);
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Database unavailable');
+    await user.click(screen.getByRole('button', { name: /Guest/ }));
+    expect(screen.getByText('Welcome, Guest')).toBeInTheDocument();
+  });
+
+  it('has no automatically detectable accessibility violations', async () => {
+    mockApi();
+    const { container } = render(<App />);
+
+    await screen.findByRole('button', { name: 'Tommy profile' });
+    const results = await axe.run(container, {
+      rules: {
+        // axe documents that color contrast is unavailable in JSDOM.
+        'color-contrast': { enabled: false },
+      },
+    });
+
+    expect(
+      results.violations.map((violation) => ({
+        id: violation.id,
+        targets: violation.nodes.flatMap((node) => node.target),
+      })),
+    ).toEqual([]);
+  });
+
+  it('keeps keyboard focus inside an open dialog', async () => {
+    mockApi([]);
+    const user = userEvent.setup();
+    render(<App />);
+
+    await user.click(await screen.findByRole('button', { name: 'Add profile' }));
+    const close = screen.getByRole('button', { name: 'Close Create profile' });
+    const create = screen.getByRole('button', { name: 'Create profile' });
+
+    create.focus();
+    fireEvent.keyDown(create, { key: 'Tab' });
+    expect(close).toHaveFocus();
+
+    fireEvent.keyDown(close, { key: 'Tab', shiftKey: true });
+    expect(create).toHaveFocus();
   });
 });

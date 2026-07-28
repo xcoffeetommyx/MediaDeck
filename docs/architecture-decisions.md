@@ -203,3 +203,28 @@ end of the project, a self-contained design-system and UX handoff will be
 prepared for a final Claude Opus 5 polish pass. Any resulting changes must still
 pass MediaDeck's accessibility, controller-navigation, responsive-layout, and
 automated quality checks before integration.
+
+## 11. Controller Navigation
+
+Status: Accepted after Stage 4 (2026-07-28)
+
+MediaDeck uses native semantic controls plus a small spatial-navigation layer.
+The focused element remains ordinary browser focus, so controller navigation
+does not create a second hidden selection state.
+
+The standard controller mapping is:
+
+- D-pad or left stick: move focus spatially
+- A: activate the focused control
+- B: close the current overlay or move back one application view
+
+Arrow keys, Enter, Escape, and Backspace follow the same navigation model.
+Mouse and touch activate the same buttons and routes. Directional repeat uses a
+dead zone and delay so an analog stick cannot skip unpredictably through the
+interface.
+
+Focus selection is based on rendered element geometry with a deterministic DOM
+order fallback for test and unusual layout environments. Dialogs form their
+own focus-navigation boundary. Every view chooses an initial focus target,
+keeps the focus ring visible, and returns to the top of the new view rather
+than preserving an unrelated scroll position.
