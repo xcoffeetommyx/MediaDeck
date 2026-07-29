@@ -1,0 +1,6 @@
+name: mediadeck
+
+services:
+  app:
+    ports:
+      - '${MEDIADECK_LAN_ADDRESS:?Set MEDIADECK_LAN_ADDRESS to the server LAN IP}:${MEDIADECK_PORT:-8080}:3000'

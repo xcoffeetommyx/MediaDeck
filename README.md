@@ -13,6 +13,7 @@ Initial deployment target:
 
 - Docker Compose
 - HTTPS over Tailscale
+- Optional private-LAN browser testing through a scoped Compose overlay
 - Any modern browser as the client
 
 Development philosophy:
@@ -91,6 +92,9 @@ Run the production profile-aware worker manager with:
 ```shell
 docker compose -f compose.yaml -f compose.sessions.yaml up --build -d
 ```
+
+To add a direct private-LAN binding, follow the
+[LAN access instructions](docs/deployment.md#optional-private-lan-access).
 
 ## Project Documents
 

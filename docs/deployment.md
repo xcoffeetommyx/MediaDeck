@@ -155,6 +155,63 @@ Current syntax and behavior are documented in
 [Tailscale Serve](https://tailscale.com/docs/reference/tailscale-cli/serve) and
 [Tailscale Funnel](https://tailscale.com/kb/1223/funnel).
 
+## Optional Private-LAN Access
+
+`compose.lan.yaml` adds a second host binding for clients that cannot run
+Tailscale, while the original loopback binding remains available to Tailscale
+Serve. Bind an explicit reserved LAN address rather than `0.0.0.0` so Docker
+does not publish MediaDeck on every host interface.
+
+First identify the server's private IPv4 address:
+
+```shell
+ip -4 route get 1.1.1.1
+```
+
+The address after `src` is normally the active LAN address. Reserve that
+address for the server in the router's DHCP settings, then add it to `.env`.
+Direct HTTP also requires a non-Secure stream cookie:
+
+```dotenv
+MEDIADECK_LAN_ADDRESS=192.168.1.50
+SESSION_COOKIE_SECURE=false
+```
+
+Replace the example address with the server's actual address. Validate and
+deploy all three Compose files:
+
+```shell
+docker compose \
+  -f compose.yaml \
+  -f compose.sessions.yaml \
+  -f compose.lan.yaml \
+  config --quiet
+
+docker compose \
+  -f compose.yaml \
+  -f compose.sessions.yaml \
+  -f compose.lan.yaml \
+  up --build -d
+```
+
+LAN clients can then open:
+
+```text
+http://192.168.1.50:8090
+```
+
+Use the port configured by `MEDIADECK_PORT`; this example matches the current
+8090 server deployment. Tailscale Serve continues to proxy the loopback
+binding, so its existing HTTPS URL remains unchanged.
+
+This direct LAN endpoint is intentionally HTTP and should remain limited to a
+trusted home network. LinuxServer's Brave/Selkies image requires HTTPS for all
+modern browser-streaming features, including WebCodecs-based video and audio.
+Some console or TV browsers may therefore load the MediaDeck interface but
+still reject the stream over direct HTTP. A conclusive long-term LAN deployment
+requires a reverse proxy with a browser-trusted certificate and LAN DNS; a
+self-signed certificate may still fail secure-context checks.
+
 ## Configuration
 
 Copy `.env.example` to `.env` to override Compose values. Environment values
@@ -166,6 +223,7 @@ Common settings:
 | Variable                        | Default           | Purpose                                                  |
 | ------------------------------- | ----------------- | -------------------------------------------------------- |
 | `MEDIADECK_PORT`                | `8080`            | Loopback port exposed by Compose                         |
+| `MEDIADECK_LAN_ADDRESS`         | unset             | Explicit host address used by `compose.lan.yaml`         |
 | `MEDIADECK_IMAGE`               | `mediadeck:0.1.0` | Local or digest-pinned release image                     |
 | `MEDIADECK_UPDATE_MANIFEST_URL` | unset             | HTTPS release manifest; empty disables update checks     |
 | `APP_VERSION`                   | `0.1.0`           | Version reported by health/config endpoints              |
