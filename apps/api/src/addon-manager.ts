@@ -14,6 +14,7 @@ import type { AddonConfig, StoragePaths } from '@mediadeck/config';
 import type { AddonWatchScanResponse, ProfileAddon } from '@mediadeck/contracts';
 
 import { ConflictError, InvalidAddonError } from './domain-errors.js';
+import { OperationCoordinator } from './operation-coordinator.js';
 import { MediaDeckStore, type StoredProfileAddon } from './store.js';
 import { inspectXpi } from './xpi-inspector.js';
 
@@ -63,6 +64,7 @@ export class AddonManager {
   readonly #config: AddonConfig;
   readonly #now: () => Date;
   readonly #onError: (error: unknown) => void;
+  readonly #operations: OperationCoordinator;
   readonly #paths: StoragePaths;
   readonly #store: MediaDeckStore;
   #scanning = false;
@@ -72,12 +74,14 @@ export class AddonManager {
     config: AddonConfig;
     now?: () => Date;
     onError?: (error: unknown) => void;
+    operations?: OperationCoordinator;
     paths: StoragePaths;
     store: MediaDeckStore;
   }) {
     this.#config = options.config;
     this.#now = options.now ?? (() => new Date());
     this.#onError = options.onError ?? (() => undefined);
+    this.#operations = options.operations ?? new OperationCoordinator();
     this.#paths = options.paths;
     this.#store = options.store;
   }
@@ -119,6 +123,16 @@ export class AddonManager {
     packageBytes: Buffer,
     source: AddonSource = 'upload',
   ): Promise<ProfileAddon> {
+    return this.#operations.run(() =>
+      this.installUnlocked(profileId, packageBytes, source),
+    );
+  }
+
+  private async installUnlocked(
+    profileId: string,
+    packageBytes: Buffer,
+    source: AddonSource,
+  ): Promise<ProfileAddon> {
     this.#store.requireProfile(profileId);
     this.assertProfileInactive(profileId);
     if (
@@ -131,7 +145,10 @@ export class AddonManager {
     }
     const inspected = inspectXpi(packageBytes, this.#config.firefoxMajorVersion);
     const current = this.#store.getProfileAddon(profileId, inspected.id);
-    if (current?.sha256 === inspected.sha256) return toPublicAddon(current);
+    if (current?.sha256 === inspected.sha256) {
+      await this.prepareProfile(profileId);
+      return toPublicAddon(current);
+    }
     if (current && compareAddonVersions(inspected.version, current.version) <= 0) {
       throw new ConflictError(
         `Add-on ${inspected.id} must be updated to a version newer than ${current.version}`,
@@ -145,8 +162,9 @@ export class AddonManager {
       .slice(0, 24)}-${inspected.sha256.slice(0, 16)}.xpi`;
     const packagePath = resolve(this.addonDirectory(profileId), packageFilename);
     const temporaryPath = `${packagePath}.${randomUUID()}.tmp`;
-    await writeFile(temporaryPath, packageBytes, { flag: 'wx', mode: 0o600 });
+    let databaseUpdated = false;
     try {
+      await writeFile(temporaryPath, packageBytes, { flag: 'wx', mode: 0o600 });
       await rename(temporaryPath, packagePath);
       const timestamp = this.#now().toISOString();
       const stored = this.#store.upsertProfileAddon({
@@ -164,14 +182,14 @@ export class AddonManager {
         updatedAt: timestamp,
         version: inspected.version,
       });
+      databaseUpdated = true;
       await this.writePolicy(profileId);
       if (current && current.packageFilename !== packageFilename) {
         await rm(resolve(this.addonDirectory(profileId), current.packageFilename), {
           force: true,
-        });
+        }).catch(this.#onError);
       }
-      this.#store.recordEvent(
-        'addon',
+      this.recordEventSafely(
         'info',
         `${current ? 'Updated' : 'Installed'} ${stored.name} ${stored.version} for profile ${profileId}`,
         timestamp,
@@ -179,6 +197,16 @@ export class AddonManager {
       return toPublicAddon(stored);
     } catch (error) {
       await rm(temporaryPath, { force: true });
+      if (databaseUpdated) {
+        if (current) {
+          this.#store.upsertProfileAddon(current);
+        } else {
+          this.#store.deleteProfileAddon(profileId, inspected.id);
+        }
+      }
+      if (current?.packageFilename !== packageFilename) {
+        await rm(packagePath, { force: true }).catch(this.#onError);
+      }
       throw error;
     }
   }
@@ -188,39 +216,59 @@ export class AddonManager {
     addonId: string,
     enabled: boolean,
   ): Promise<ProfileAddon> {
-    this.#store.requireProfile(profileId);
-    this.assertProfileInactive(profileId);
-    const timestamp = this.#now().toISOString();
-    const addon = this.#store.setProfileAddonEnabled(
-      profileId,
-      addonId,
-      enabled,
-      timestamp,
-    );
-    await this.writePolicy(profileId);
-    this.#store.recordEvent(
-      'addon',
-      'info',
-      `${enabled ? 'Enabled' : 'Disabled'} ${addon.name} for profile ${profileId}`,
-      timestamp,
-    );
-    return toPublicAddon(addon);
+    return this.#operations.run(async () => {
+      this.#store.requireProfile(profileId);
+      this.assertProfileInactive(profileId);
+      const current = this.#store.getProfileAddon(profileId, addonId);
+      const timestamp = this.#now().toISOString();
+      const addon = this.#store.setProfileAddonEnabled(
+        profileId,
+        addonId,
+        enabled,
+        timestamp,
+      );
+      try {
+        await this.writePolicy(profileId);
+      } catch (error) {
+        if (current) {
+          this.#store.setProfileAddonEnabled(
+            profileId,
+            addonId,
+            current.enabled,
+            current.updatedAt,
+          );
+        }
+        throw error;
+      }
+      this.recordEventSafely(
+        'info',
+        `${enabled ? 'Enabled' : 'Disabled'} ${addon.name} for profile ${profileId}`,
+        timestamp,
+      );
+      return toPublicAddon(addon);
+    });
   }
 
   async remove(profileId: string, addonId: string): Promise<void> {
-    this.#store.requireProfile(profileId);
-    this.assertProfileInactive(profileId);
-    const addon = this.#store.deleteProfileAddon(profileId, addonId);
-    await this.writePolicy(profileId);
-    await rm(resolve(this.addonDirectory(profileId), addon.packageFilename), {
-      force: true,
+    await this.#operations.run(async () => {
+      this.#store.requireProfile(profileId);
+      this.assertProfileInactive(profileId);
+      const addon = this.#store.deleteProfileAddon(profileId, addonId);
+      try {
+        await this.writePolicy(profileId);
+      } catch (error) {
+        this.#store.upsertProfileAddon(addon);
+        throw error;
+      }
+      await rm(resolve(this.addonDirectory(profileId), addon.packageFilename), {
+        force: true,
+      }).catch(this.#onError);
+      this.recordEventSafely(
+        'warning',
+        `Removed ${addon.name} from profile ${profileId}`,
+        this.#now().toISOString(),
+      );
     });
-    this.#store.recordEvent(
-      'addon',
-      'warning',
-      `Removed ${addon.name} from profile ${profileId}`,
-      this.#now().toISOString(),
-    );
   }
 
   async scanWatchedDirectory(): Promise<AddonWatchScanResponse> {
@@ -314,20 +362,25 @@ export class AddonManager {
     );
     const policyPath = resolve(this.policyDirectory(profileId), 'policies.json');
     const temporaryPath = `${policyPath}.${randomUUID()}.tmp`;
-    await writeFile(
-      temporaryPath,
-      `${JSON.stringify(
-        {
-          policies: {
-            ExtensionSettings: extensionSettings,
+    try {
+      await writeFile(
+        temporaryPath,
+        `${JSON.stringify(
+          {
+            policies: {
+              ExtensionSettings: extensionSettings,
+            },
           },
-        },
-        null,
-        2,
-      )}\n`,
-      { flag: 'wx', mode: 0o600 },
-    );
-    await rename(temporaryPath, policyPath);
+          null,
+          2,
+        )}\n`,
+        { flag: 'wx', mode: 0o644 },
+      );
+      await rename(temporaryPath, policyPath);
+    } catch (error) {
+      await rm(temporaryPath, { force: true });
+      throw error;
+    }
   }
 
   private async rejectWatchedPackage(
@@ -349,11 +402,22 @@ export class AddonManager {
       })}\n`,
       { flag: 'wx', mode: 0o600 },
     );
-    this.#store.recordEvent(
-      'addon',
+    this.recordEventSafely(
       'warning',
       `Rejected watched add-on ${filename} for profile ${profileId}`,
       this.#now().toISOString(),
     );
+  }
+
+  private recordEventSafely(
+    level: 'error' | 'info' | 'warning',
+    message: string,
+    createdAt: string,
+  ): void {
+    try {
+      this.#store.recordEvent('addon', level, message, createdAt);
+    } catch (error) {
+      this.#onError(error);
+    }
   }
 }

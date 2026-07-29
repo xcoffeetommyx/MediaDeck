@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { rename, writeFile } from 'node:fs/promises';
+import { rename, rm, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 
 import type { StoragePaths } from '@mediadeck/config';
@@ -41,6 +41,7 @@ export class UpdateManager {
   readonly #fetch: FetchFunction;
   readonly #manifestUrl: string | undefined;
   readonly #now: () => Date;
+  readonly #onError: (error: unknown) => void;
   readonly #paths: StoragePaths;
   readonly #store: MediaDeckStore;
   #initialTimer: NodeJS.Timeout | undefined;
@@ -52,6 +53,7 @@ export class UpdateManager {
     fetch?: FetchFunction;
     manifestUrl?: string;
     now?: () => Date;
+    onError?: (error: unknown) => void;
     paths: StoragePaths;
     store: MediaDeckStore;
   }) {
@@ -60,6 +62,7 @@ export class UpdateManager {
     this.#fetch = options.fetch ?? fetch;
     this.#manifestUrl = options.manifestUrl;
     this.#now = options.now ?? (() => new Date());
+    this.#onError = options.onError ?? (() => undefined);
     this.#paths = options.paths;
     this.#store = options.store;
   }
@@ -206,8 +209,7 @@ export class UpdateManager {
         state: available ? 'available' : 'current',
       };
       this.persist(status);
-      this.#store.recordEvent(
-        'update',
+      this.recordEventSafely(
         'info',
         available
           ? `Update ${manifest.version} is available`
@@ -230,8 +232,7 @@ export class UpdateManager {
         state: 'error',
       };
       this.persist(status);
-      this.#store.recordEvent(
-        'update',
+      this.recordEventSafely(
         'error',
         status.message ?? 'Update check failed',
         checkedAt,
@@ -259,10 +260,16 @@ export class UpdateManager {
         'Update approved and backed up. Apply the pinned image with the host runbook.',
       state: 'approved',
     };
-    this.persist(status);
     await this.writeApprovedPlan(status);
-    this.#store.recordEvent(
-      'update',
+    try {
+      this.persist(status);
+    } catch (error) {
+      await rm(resolve(this.#paths.runtime, 'approved-update.json'), {
+        force: true,
+      }).catch(this.#onError);
+      throw error;
+    }
+    this.recordEventSafely(
       'warning',
       `Update ${version} was approved with backup ${backup.id}`,
       approvedAt,
@@ -281,24 +288,41 @@ export class UpdateManager {
   private async writeApprovedPlan(status: UpdateStatus): Promise<void> {
     const destination = resolve(this.#paths.runtime, 'approved-update.json');
     const temporary = `${destination}.${randomUUID()}.tmp`;
-    await writeFile(
-      temporary,
-      `${JSON.stringify(
+    try {
+      await writeFile(
+        temporary,
+        `${JSON.stringify(
+          {
+            approvedAt: status.approvedAt,
+            backupId: status.backupId,
+            image: status.release?.image,
+            installedVersion: status.installedVersion,
+            version: status.release?.version,
+          },
+          null,
+          2,
+        )}\n`,
         {
-          approvedAt: status.approvedAt,
-          backupId: status.backupId,
-          image: status.release?.image,
-          installedVersion: status.installedVersion,
-          version: status.release?.version,
+          encoding: 'utf8',
+          mode: 0o600,
         },
-        null,
-        2,
-      )}\n`,
-      {
-        encoding: 'utf8',
-        mode: 0o600,
-      },
-    );
-    await rename(temporary, destination);
+      );
+      await rename(temporary, destination);
+    } catch (error) {
+      await rm(temporary, { force: true });
+      throw error;
+    }
+  }
+
+  private recordEventSafely(
+    level: 'error' | 'info' | 'warning',
+    message: string,
+    createdAt: string,
+  ): void {
+    try {
+      this.#store.recordEvent('update', level, message, createdAt);
+    } catch (error) {
+      this.#onError(error);
+    }
   }
 }

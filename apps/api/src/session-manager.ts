@@ -21,6 +21,7 @@ import {
   SessionUnauthorizedError,
   WorkerUnavailableError,
 } from './domain-errors.js';
+import { OperationCoordinator } from './operation-coordinator.js';
 import { MediaDeckStore, type StoredBrowserSession } from './store.js';
 
 type SessionManagerOptions = {
@@ -30,6 +31,7 @@ type SessionManagerOptions = {
   maxSessions: number;
   now?: () => Date;
   onMonitorError?: (error: unknown) => void;
+  operations?: OperationCoordinator;
   paths: StoragePaths;
   prepareProfileAddons?: (profileId: string) => Promise<void>;
   store: MediaDeckStore;
@@ -81,6 +83,7 @@ export class SessionManager {
   readonly #maxSessions: number;
   readonly #now: () => Date;
   readonly #onMonitorError: (error: unknown) => void;
+  readonly #operations: OperationCoordinator;
   readonly #paths: StoragePaths;
   readonly #prepareProfileAddons: (profileId: string) => Promise<void>;
   readonly #store: MediaDeckStore;
@@ -96,6 +99,7 @@ export class SessionManager {
     maxSessions,
     now = () => new Date(),
     onMonitorError = () => undefined,
+    operations = new OperationCoordinator(),
     paths,
     prepareProfileAddons = () => Promise.resolve(),
     store,
@@ -108,6 +112,7 @@ export class SessionManager {
     this.#maxSessions = maxSessions;
     this.#now = now;
     this.#onMonitorError = onMonitorError;
+    this.#operations = operations;
     this.#paths = paths;
     this.#prepareProfileAddons = prepareProfileAddons;
     this.#store = store;
@@ -136,27 +141,31 @@ export class SessionManager {
         ? resolve(this.#paths.profiles, input.profileId, 'firefox')
         : resolve(this.#paths.guests, id, 'firefox');
 
-    const session = this.#store.createSession(
-      {
-        accessTokenHash: hashAccessToken(
-          input.accessToken ?? randomBytes(32).toString('base64url'),
+    const session = await this.#operations.run(() =>
+      Promise.resolve(
+        this.#store.createSession(
+          {
+            accessTokenHash: hashAccessToken(
+              input.accessToken ?? randomBytes(32).toString('base64url'),
+            ),
+            applicationId: application.id,
+            createdAt: timestamp,
+            id,
+            kind: input.kind,
+            lastSeenAt: timestamp,
+            profileId: input.kind === 'profile' ? input.profileId : null,
+            storagePath,
+            updatedAt: timestamp,
+          },
+          this.#maxSessions,
         ),
-        applicationId: application.id,
-        createdAt: timestamp,
-        id,
-        kind: input.kind,
-        lastSeenAt: timestamp,
-        profileId: input.kind === 'profile' ? input.profileId : null,
-        storagePath,
-        updatedAt: timestamp,
-      },
-      this.#maxSessions,
+      ),
     );
 
     try {
       await mkdir(filesystemPath, { recursive: true });
       const started = await this.startWorker(session);
-      this.#store.recordEvent(
+      this.recordEventSafely(
         'session',
         'info',
         `${application.displayName} session ${id} started for ${input.kind}`,
@@ -171,7 +180,7 @@ export class SessionManager {
       if (failed.kind === 'guest') {
         await this.cleanupGuest(failed);
       }
-      this.#store.recordEvent(
+      this.recordEventSafely(
         'session',
         'error',
         `Session ${id} failed to start: ${failed.failureReason ?? 'unknown error'}`,
@@ -413,7 +422,7 @@ export class SessionManager {
     if (session.kind === 'guest') {
       await this.cleanupGuest(session);
     }
-    this.#store.recordEvent(
+    this.recordEventSafely(
       'session',
       'info',
       `Session ${id} stopped`,
@@ -450,7 +459,7 @@ export class SessionManager {
     try {
       await mkdir(this.sessionFilesystemPath(session), { recursive: true });
       const recovered = await this.startWorker(session);
-      this.#store.recordEvent(
+      this.recordEventSafely(
         'recovery',
         'info',
         `Session ${id} browser worker was recovered`,
@@ -592,12 +601,16 @@ export class SessionManager {
       storagePath: session.storagePath,
     });
     const timestamp = this.#now().toISOString();
-
-    return this.#store.updateSession(session.id, {
-      status: 'starting',
-      updatedAt: timestamp,
-      workerId,
-    });
+    try {
+      return this.#store.updateSession(session.id, {
+        status: 'starting',
+        updatedAt: timestamp,
+        workerId,
+      });
+    } catch (error) {
+      await this.#workerDriver.stop(workerId).catch(this.#onMonitorError);
+      throw error;
+    }
   }
 
   private markFailed(id: string, reason: string): StoredBrowserSession {
@@ -653,5 +666,18 @@ export class SessionManager {
     return session.kind === 'profile' && session.profileId
       ? resolve(this.#paths.profiles, session.profileId, 'firefox')
       : resolve(this.#paths.guests, session.id, 'firefox');
+  }
+
+  private recordEventSafely(
+    category: 'recovery' | 'session',
+    level: 'error' | 'info' | 'warning',
+    message: string,
+    createdAt = this.#now().toISOString(),
+  ): void {
+    try {
+      this.#store.recordEvent(category, level, message, createdAt);
+    } catch (error) {
+      this.#onMonitorError(error);
+    }
   }
 }

@@ -18,7 +18,10 @@ type DockerEngineRequest = {
 };
 
 export class DockerEngineClient {
-  constructor(private readonly socketPath: string) {}
+  constructor(
+    private readonly socketPath: string,
+    private readonly timeoutMilliseconds = 30_000,
+  ) {}
 
   async request({
     body,
@@ -64,6 +67,13 @@ export class DockerEngineClient {
       );
 
       dockerRequest.on('error', reject);
+      dockerRequest.setTimeout(this.timeoutMilliseconds, () => {
+        dockerRequest.destroy(
+          new Error(
+            `Docker Engine did not respond within ${this.timeoutMilliseconds} ms`,
+          ),
+        );
+      });
       if (payload) {
         dockerRequest.write(payload);
       }

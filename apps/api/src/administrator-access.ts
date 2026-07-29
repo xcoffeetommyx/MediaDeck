@@ -39,12 +39,18 @@ function bearerToken(authorization: string | undefined): string | undefined {
 export class AdministratorAccess {
   readonly #attempts = new Map<string, AttemptRecord>();
   readonly #now: () => Date;
+  readonly #onError: (error: unknown) => void;
   readonly #store: MediaDeckStore;
   readonly #tokens = new Map<string, TokenRecord>();
 
-  constructor(store: MediaDeckStore, now: () => Date = () => new Date()) {
+  constructor(
+    store: MediaDeckStore,
+    now: () => Date = () => new Date(),
+    onError: (error: unknown) => void = () => undefined,
+  ) {
     this.#store = store;
     this.#now = now;
+    this.#onError = onError;
   }
 
   getStatus(authorization?: string): AdministratorStatus {
@@ -92,8 +98,7 @@ export class AdministratorAccess {
 
     this.#attempts.delete(clientKey);
     const token = this.issueToken();
-    this.#store.recordEvent(
-      'administration',
+    this.recordEventSafely(
       'info',
       'Administrator controls were unlocked',
       this.#now().toISOString(),
@@ -111,8 +116,7 @@ export class AdministratorAccess {
     if (pin === null) {
       this.#store.setAdministratorSecurity(null);
       this.#tokens.clear();
-      this.#store.recordEvent(
-        'administration',
+      this.recordEventSafely(
         'warning',
         'Administrator PIN protection was disabled',
         timestamp,
@@ -127,8 +131,7 @@ export class AdministratorAccess {
       updatedAt: timestamp,
     });
     this.#tokens.clear();
-    this.#store.recordEvent(
-      'administration',
+    this.recordEventSafely(
       'info',
       'Administrator PIN protection was enabled or changed',
       timestamp,
@@ -187,5 +190,17 @@ export class AdministratorAccess {
       return;
     }
     current.count += 1;
+  }
+
+  private recordEventSafely(
+    level: 'error' | 'info' | 'warning',
+    message: string,
+    createdAt: string,
+  ): void {
+    try {
+      this.#store.recordEvent('administration', level, message, createdAt);
+    } catch (error) {
+      this.#onError(error);
+    }
   }
 }

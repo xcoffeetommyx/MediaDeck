@@ -21,6 +21,7 @@ export class OperationsManager {
     private readonly sessions: SessionManager,
     private readonly store: MediaDeckStore,
     private readonly now: () => Date = () => new Date(),
+    private readonly onError: (error: unknown) => void = () => undefined,
   ) {}
 
   async diagnostics(): Promise<OperationalDiagnostics> {
@@ -96,12 +97,16 @@ export class OperationsManager {
 
   async reconcile(): Promise<OperationalDiagnostics> {
     await this.sessions.reconcile();
-    this.store.recordEvent(
-      'recovery',
-      'info',
-      'Browser session reconciliation was run manually',
-      this.now().toISOString(),
-    );
+    try {
+      this.store.recordEvent(
+        'recovery',
+        'info',
+        'Browser session reconciliation was run manually',
+        this.now().toISOString(),
+      );
+    } catch (error) {
+      this.onError(error);
+    }
     return this.diagnostics();
   }
 }

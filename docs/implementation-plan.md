@@ -234,6 +234,16 @@ changes, disabling removed the extension on relaunch, and a watched package was
 imported only into a second profile. See
 [Stage 8 Firefox Add-on Management](stage-8-firefox-addons.md).
 
+## Final Functional Hardening Pass
+
+Status: Complete (2026-07-28)
+
+Before visual polish, startup, shutdown, restore, backup consistency, Docker
+failure, add-on concurrency, shared-volume ownership, dependency, Compose, and
+production-container paths received a release-style fault-injection pass. No
+known functional release blocker remains. See
+[Final Functional Hardening Pass](final-hardening-pass.md).
+
 ## Stage 9: Product Polish and Release
 
 Scope:

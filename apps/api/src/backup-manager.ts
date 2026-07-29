@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import {
+  access,
   cp,
   mkdir,
   readFile,
@@ -20,10 +21,12 @@ import {
 import { z } from 'zod';
 
 import { ConflictError, NotFoundError } from './domain-errors.js';
+import { OperationCoordinator } from './operation-coordinator.js';
 import type { MediaDeckStore } from './store.js';
 
 const manifestFilename = 'manifest.json';
 const restoreRequestFilename = 'restore-request.json';
+const completedRestoreFilename = 'restore-request.completed';
 
 const backupManifestSchema = backupSummarySchema.extend({
   databaseFile: z.literal('database/mediadeck.sqlite'),
@@ -66,11 +69,16 @@ async function directorySize(path: string): Promise<number> {
 
 async function writeJsonAtomically(path: string, value: unknown): Promise<void> {
   const temporary = `${path}.${randomUUID()}.tmp`;
-  await writeFile(temporary, `${JSON.stringify(value, null, 2)}\n`, {
-    encoding: 'utf8',
-    mode: 0o600,
-  });
-  await rename(temporary, path);
+  try {
+    await writeFile(temporary, `${JSON.stringify(value, null, 2)}\n`, {
+      encoding: 'utf8',
+      mode: 0o600,
+    });
+    await rename(temporary, path);
+  } catch (error) {
+    await rm(temporary, { force: true });
+    throw error;
+  }
 }
 
 async function readManifest(directory: string): Promise<BackupManifest> {
@@ -85,6 +93,8 @@ export class BackupManager {
     private readonly store: MediaDeckStore,
     private readonly retentionCount: () => number,
     private readonly now: () => Date = () => new Date(),
+    private readonly operations: OperationCoordinator = new OperationCoordinator(),
+    private readonly onError: (error: unknown) => void = () => undefined,
   ) {}
 
   async list(): Promise<BackupSummary[]> {
@@ -104,6 +114,10 @@ export class BackupManager {
   }
 
   async create(): Promise<BackupSummary> {
+    return this.operations.run(() => this.createUnlocked());
+  }
+
+  private async createUnlocked(): Promise<BackupSummary> {
     if (this.store.listActiveSessions().length > 0) {
       throw new ConflictError('Stop active browser sessions before creating a backup');
     }
@@ -115,13 +129,13 @@ export class BackupManager {
     const databaseDirectory = resolve(temporary, 'database');
     const profilesDirectory = resolve(temporary, 'profiles');
 
-    await mkdir(databaseDirectory, { recursive: true });
-    await cp(this.paths.profiles, profilesDirectory, { recursive: true });
-
+    let manifest: BackupManifest;
     try {
+      await mkdir(databaseDirectory, { recursive: true });
+      await cp(this.paths.profiles, profilesDirectory, { recursive: true });
       await this.store.backupDatabase(resolve(databaseDirectory, 'mediadeck.sqlite'));
       const profileCount = this.store.getProfileCount();
-      const manifest: BackupManifest = {
+      manifest = {
         appVersion: this.appVersion,
         createdAt,
         databaseFile: 'database/mediadeck.sqlite',
@@ -134,13 +148,13 @@ export class BackupManager {
       };
       await writeJsonAtomically(resolve(temporary, manifestFilename), manifest);
       await rename(temporary, destination);
-      this.store.recordEvent('backup', 'info', `Backup ${id} was created`, createdAt);
-      await this.enforceRetention();
-      return manifest;
     } catch (error) {
       await rm(temporary, { force: true, recursive: true });
       throw error;
     }
+    this.recordEventSafely('info', `Backup ${id} was created`, createdAt);
+    await this.enforceRetention().catch(this.onError);
+    return manifest;
   }
 
   async delete(id: string): Promise<void> {
@@ -151,7 +165,7 @@ export class BackupManager {
       throw new NotFoundError(`Backup ${id} was not found`);
     }
     await rm(directory, { recursive: true });
-    this.store.recordEvent('backup', 'warning', `Backup ${id} was deleted`);
+    this.recordEventSafely('warning', `Backup ${id} was deleted`);
   }
 
   async scheduleRestore(id: string): Promise<RestoreBackupResponse> {
@@ -172,8 +186,7 @@ export class BackupManager {
       backupId: id,
       scheduledAt,
     });
-    this.store.recordEvent(
-      'backup',
+    this.recordEventSafely(
       'warning',
       `Restore from backup ${id} was scheduled for the next restart`,
       scheduledAt,
@@ -193,16 +206,72 @@ export class BackupManager {
       });
     }
   }
+
+  private recordEventSafely(
+    level: 'error' | 'info' | 'warning',
+    message: string,
+    createdAt = this.now().toISOString(),
+  ): void {
+    try {
+      this.store.recordEvent('backup', level, message, createdAt);
+    } catch (error) {
+      this.onError(error);
+    }
+  }
+}
+
+async function exists(path: string): Promise<boolean> {
+  try {
+    await access(path);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function restoreArtifactPaths(paths: StoragePaths) {
+  return {
+    completedRequest: resolve(paths.runtime, completedRestoreFilename),
+    previousDatabase: `${paths.databaseFile}.previous`,
+    previousProfiles: resolve(paths.runtime, 'profiles-before-restore'),
+    request: resolve(paths.runtime, restoreRequestFilename),
+    restoreDatabase: `${paths.databaseFile}.restore`,
+  };
+}
+
+async function rollbackInterruptedRestore(paths: StoragePaths): Promise<void> {
+  const artifacts = restoreArtifactPaths(paths);
+  if (await exists(artifacts.previousDatabase)) {
+    await rm(paths.databaseFile, { force: true });
+    await rm(`${paths.databaseFile}-wal`, { force: true });
+    await rm(`${paths.databaseFile}-shm`, { force: true });
+    await rename(artifacts.previousDatabase, paths.databaseFile);
+  }
+  if (await exists(artifacts.previousProfiles)) {
+    await rm(paths.profiles, { force: true, recursive: true });
+    await rename(artifacts.previousProfiles, paths.profiles);
+  }
+  await rm(artifacts.restoreDatabase, { force: true });
+}
+
+async function cleanupCompletedRestore(paths: StoragePaths): Promise<void> {
+  const artifacts = restoreArtifactPaths(paths);
+  if (!(await exists(artifacts.completedRequest))) return;
+  await rm(artifacts.previousDatabase, { force: true });
+  await rm(artifacts.previousProfiles, { force: true, recursive: true });
+  await rm(artifacts.restoreDatabase, { force: true });
+  await rm(artifacts.completedRequest, { force: true });
 }
 
 export async function applyScheduledRestore(
   paths: StoragePaths,
 ): Promise<string | null> {
-  const requestPath = resolve(paths.runtime, restoreRequestFilename);
+  await cleanupCompletedRestore(paths);
+  const artifacts = restoreArtifactPaths(paths);
   let request: z.infer<typeof restoreRequestSchema>;
   try {
     request = restoreRequestSchema.parse(
-      JSON.parse(await readFile(requestPath, 'utf8')),
+      JSON.parse(await readFile(artifacts.request, 'utf8')),
     );
   } catch (error) {
     if (error instanceof Error && 'code' in error && error.code === 'ENOENT') {
@@ -211,49 +280,40 @@ export async function applyScheduledRestore(
     throw new Error('The pending restore request is invalid', { cause: error });
   }
 
+  await rollbackInterruptedRestore(paths);
   const source = safeChild(paths.backups, request.backupId);
   await readManifest(source);
   const sourceDatabase = resolve(source, 'database', 'mediadeck.sqlite');
   const sourceProfiles = resolve(source, 'profiles');
-  const restoreDatabase = `${paths.databaseFile}.restore`;
-  const previousDatabase = `${paths.databaseFile}.previous`;
-  const previousProfiles = resolve(paths.runtime, 'profiles-before-restore');
+  await cp(sourceDatabase, artifacts.restoreDatabase);
 
-  await rm(restoreDatabase, { force: true });
-  await rm(previousDatabase, { force: true });
-  await rm(previousProfiles, { force: true, recursive: true });
-  await cp(sourceDatabase, restoreDatabase);
-
-  let databaseMoved = false;
-  let profilesMoved = false;
   try {
     try {
-      await rename(paths.databaseFile, previousDatabase);
-      databaseMoved = true;
+      await rename(paths.databaseFile, artifacts.previousDatabase);
     } catch (error) {
       if (!(error instanceof Error && 'code' in error && error.code === 'ENOENT')) {
         throw error;
       }
     }
-    await rename(restoreDatabase, paths.databaseFile);
+    await rename(artifacts.restoreDatabase, paths.databaseFile);
 
-    await rename(paths.profiles, previousProfiles);
-    profilesMoved = true;
+    await rename(paths.profiles, artifacts.previousProfiles);
     await cp(sourceProfiles, paths.profiles, { recursive: true });
-
-    await rm(`${paths.databaseFile}-wal`, { force: true });
-    await rm(`${paths.databaseFile}-shm`, { force: true });
-    await rm(previousDatabase, { force: true });
-    await rm(previousProfiles, { force: true, recursive: true });
-    await rm(requestPath);
-    return request.backupId;
+    await rename(artifacts.request, artifacts.completedRequest);
   } catch (error) {
-    await rm(paths.databaseFile, { force: true });
-    if (databaseMoved) await rename(previousDatabase, paths.databaseFile);
-    if (profilesMoved) {
-      await rm(paths.profiles, { force: true, recursive: true });
-      await rename(previousProfiles, paths.profiles);
-    }
+    await rollbackInterruptedRestore(paths);
     throw error;
   }
+
+  try {
+    await rm(`${paths.databaseFile}-wal`, { force: true });
+    await rm(`${paths.databaseFile}-shm`, { force: true });
+    await rm(artifacts.previousDatabase, { force: true });
+    await rm(artifacts.previousProfiles, { force: true, recursive: true });
+    await rm(artifacts.restoreDatabase, { force: true });
+    await rm(artifacts.completedRequest, { force: true });
+  } catch {
+    // Keep the completion marker so startup retries artifact cleanup safely.
+  }
+  return request.backupId;
 }

@@ -78,6 +78,12 @@ describe('server configuration', () => {
       loadServerConfig({ BROWSER_SESSION_IDLE_TIMEOUT_SECONDS: '30' }),
     ).toThrow();
   });
+
+  it('rejects a worker UID that would take ownership away from the app', () => {
+    expect(() => loadServerConfig({ BROWSER_PUID: '1001' })).toThrow(
+      'BROWSER_PUID must remain 1000',
+    );
+  });
 });
 
 describe('storage paths', () => {

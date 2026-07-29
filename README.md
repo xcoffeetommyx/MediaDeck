@@ -109,4 +109,5 @@ docker compose -f compose.yaml -f compose.sessions.yaml up --build -d
 - [Stage 6 operations report](docs/stage-6-operations.md)
 - [Stage 7 concurrent sessions report](docs/stage-7-concurrent-sessions.md)
 - [Stage 8 Firefox add-on management report](docs/stage-8-firefox-addons.md)
+- [Final functional hardening report](docs/final-hardening-pass.md)
 - [Claude Opus 5 visual-polish handoff](docs/claude-opus-5-polish-handoff.md)

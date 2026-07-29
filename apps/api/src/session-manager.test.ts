@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { getStoragePaths, type StoragePaths } from '@mediadeck/config';
+import Database from 'better-sqlite3';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import type {
@@ -311,6 +312,54 @@ describe('session manager', () => {
     await sessions.reconcile();
     expect(sessions.get(guest.id).status).toBe('stopped');
     await expect(access(join(paths.guests, guest.id))).rejects.toThrow();
+  });
+
+  it('removes a worker if persisting its Docker ID fails', async () => {
+    const triggerDatabase = new Database(paths.databaseFile);
+    triggerDatabase.exec(`
+      CREATE TRIGGER reject_worker_id
+      BEFORE UPDATE OF worker_id ON browser_sessions
+      WHEN NEW.worker_id IS NOT NULL
+      BEGIN
+        SELECT RAISE(ABORT, 'simulated worker persistence failure');
+      END;
+    `);
+    triggerDatabase.close();
+    const sessions = createManager();
+
+    await expect(sessions.start({ kind: 'guest' })).rejects.toThrow(
+      WorkerUnavailableError,
+    );
+
+    expect(driver.states.size).toBe(0);
+    expect(store.listSessions()).toEqual([
+      expect.objectContaining({
+        failureReason: 'simulated worker persistence failure',
+        status: 'failed',
+        workerId: null,
+      }),
+    ]);
+  });
+
+  it('does not fail a running session when optional event logging fails', async () => {
+    const triggerDatabase = new Database(paths.databaseFile);
+    triggerDatabase.exec(`
+      CREATE TRIGGER reject_operation_event
+      BEFORE INSERT ON operation_events
+      BEGIN
+        SELECT RAISE(ABORT, 'simulated event logging failure');
+      END;
+    `);
+    triggerDatabase.close();
+    const sessions = createManager();
+
+    const session = await sessions.start({ kind: 'guest' });
+
+    expect(session.status).toBe('starting');
+    expect(driver.states.size).toBe(1);
+    await expect(sessions.stop(session.id)).resolves.toMatchObject({
+      status: 'stopped',
+    });
   });
 
   it('uses the documented storage paths beneath the shared data volume', () => {

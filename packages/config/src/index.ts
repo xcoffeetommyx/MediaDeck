@@ -29,8 +29,14 @@ const serverEnvironmentSchema = z.object({
   APP_VERSION: z.string().min(1).default('0.1.0'),
   BROWSER_DATA_VOLUME: z.string().min(1).default('mediadeck-data'),
   BROWSER_FRAMERATE: z.coerce.number().int().min(8).max(120).default(60),
-  BROWSER_PGID: z.coerce.number().int().nonnegative().default(1000),
-  BROWSER_PUID: z.coerce.number().int().nonnegative().default(1000),
+  BROWSER_PGID: z.coerce.number().int().min(0).max(65_535).default(1000),
+  BROWSER_PUID: z.coerce
+    .number()
+    .int()
+    .refine((value) => value === 1000, {
+      message: 'BROWSER_PUID must remain 1000 for shared-volume ownership',
+    })
+    .default(1000),
   BROWSER_SESSION_HEALTH_INTERVAL_SECONDS: z.coerce
     .number()
     .int()

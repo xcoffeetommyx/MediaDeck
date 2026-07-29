@@ -214,6 +214,21 @@ describe('Firefox add-on manager', () => {
     ).resolves.toMatchObject({ version: '2.0.0' });
   });
 
+  it('serializes simultaneous updates so an older package cannot win a race', async () => {
+    const profile = await profiles.create({ name: 'Concurrent updates' });
+    await addons.install(profile.id, createXpi({ version: '1.0.0' }));
+
+    await Promise.all([
+      addons.install(profile.id, createXpi({ version: '2.0.0' })),
+      addons.install(profile.id, createXpi({ version: '3.0.0' })),
+    ]);
+
+    expect(addons.list(profile.id)[0]).toMatchObject({ version: '3.0.0' });
+    expect(
+      await readdir(join(paths.profiles, profile.id, 'firefox', 'mediadeck', 'addons')),
+    ).toHaveLength(1);
+  });
+
   it('rejects unsigned and incompatible packages without inventory changes', async () => {
     const profile = await profiles.create({ name: 'Validation' });
 

@@ -4,11 +4,19 @@ import { buildApplication } from './app.js';
 
 const config = loadServerConfig();
 const app = await buildApplication({ config });
+let closing = false;
 
 const closeGracefully = async (signal: NodeJS.Signals): Promise<void> => {
+  if (closing) return;
+  closing = true;
   app.log.info({ signal }, 'Shutting down MediaDeck');
-  await app.close();
-  process.exitCode = 0;
+  try {
+    await app.close();
+    process.exitCode = 0;
+  } catch (error) {
+    app.log.error(error, 'MediaDeck shutdown failed');
+    process.exitCode = 1;
+  }
 };
 
 process.once('SIGINT', () => void closeGracefully('SIGINT'));

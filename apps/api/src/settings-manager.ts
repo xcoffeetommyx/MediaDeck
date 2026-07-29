@@ -16,6 +16,7 @@ export class SettingsManager {
   constructor(
     private readonly store: MediaDeckStore,
     private readonly now: () => Date = () => new Date(),
+    private readonly onError: (error: unknown) => void = () => undefined,
   ) {}
 
   get(): AdministratorSettings {
@@ -40,12 +41,16 @@ export class SettingsManager {
       JSON.stringify(settings),
       this.now().toISOString(),
     );
-    this.store.recordEvent(
-      'administration',
-      'info',
-      'Administrator settings were updated',
-      this.now().toISOString(),
-    );
+    try {
+      this.store.recordEvent(
+        'administration',
+        'info',
+        'Administrator settings were updated',
+        this.now().toISOString(),
+      );
+    } catch (error) {
+      this.onError(error);
+    }
     return settings;
   }
 }

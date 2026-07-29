@@ -1,7 +1,8 @@
 # Claude Opus 5 Visual-Polish Handoff
 
-MediaDeck's functional implementation through Stage 8 is complete. This
-handoff authorizes a visual and interaction-polish pass only.
+MediaDeck's functional implementation through Stage 8 and its final functional
+hardening pass are complete. This handoff authorizes a visual and
+interaction-polish pass only.
 
 ## Objective
 
@@ -57,7 +58,7 @@ pnpm validate
 docker compose -f compose.yaml -f compose.sessions.yaml config
 ```
 
-The current baseline is 73 passing tests. Add or update presentation tests only
+The current baseline is 81 passing tests. Add or update presentation tests only
 when markup changes require it; never delete behavioral assertions to make a
 polish change pass.
 

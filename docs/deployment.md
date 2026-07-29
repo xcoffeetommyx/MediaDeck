@@ -247,6 +247,12 @@ The generated profile-specific policy is mounted read-only at
 `/etc/firefox/policies`, separately from the writable Firefox profile.
 Operators cannot upload arbitrary policy JSON.
 
+`PUID` must remain `1000`. The MediaDeck application runs as UID 1000 and
+shares each profile volume with its Firefox worker; a different worker UID
+would take ownership of persistent files away from the application. `PGID` may
+still match the operator's preferred host group. Startup rejects a different
+PUID instead of allowing a deployment that later loses access to its profiles.
+
 Add-on configuration defaults are:
 
 | Variable                       | Default | Purpose                                   |

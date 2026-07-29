@@ -39,7 +39,9 @@ describe('profile manager', () => {
     ).resolves.toBeUndefined();
     expect(profiles.list()).toEqual([profile]);
 
-    expect(profiles.update(profile.id, { name: 'Family' })).toMatchObject({
+    await expect(
+      profiles.update(profile.id, { name: 'Family' }),
+    ).resolves.toMatchObject({
       avatarId: 'blue-fox',
       name: 'Family',
     });

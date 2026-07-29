@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { access, mkdtemp, readFile, rename, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -24,6 +24,7 @@ import type {
   BrowserWorkerDriver,
   StartBrowserWorkerInput,
 } from './browser-worker-driver.js';
+import { MediaDeckStore } from './store.js';
 
 let dataDirectory: string;
 
@@ -544,6 +545,98 @@ describe('MediaDeck API', () => {
       profiles: [expect.objectContaining({ name: 'Before backup' })],
     });
     await restoredApp.close();
+  });
+
+  it('rolls an interrupted restore back before retrying it', async () => {
+    const app = await buildApplication({
+      config: createConfig(),
+      logger: false,
+    });
+    await app.inject({
+      method: 'POST',
+      payload: { name: 'Recovery source' },
+      url: '/api/v1/profiles',
+    });
+    const createdBackup = await app.inject({
+      method: 'POST',
+      url: '/api/v1/backups',
+    });
+    const backup = backupSummarySchema.parse(createdBackup.json());
+    await app.inject({
+      method: 'POST',
+      url: `/api/v1/backups/${backup.id}/restore`,
+    });
+    await app.close();
+
+    await rename(
+      join(dataDirectory, 'database', 'mediadeck.sqlite'),
+      join(dataDirectory, 'database', 'mediadeck.sqlite.previous'),
+    );
+    await rename(
+      join(dataDirectory, 'profiles'),
+      join(dataDirectory, 'runtime', 'profiles-before-restore'),
+    );
+
+    const recoveredApp = await buildApplication({
+      config: createConfig(),
+      logger: false,
+    });
+    const profiles = await recoveredApp.inject({
+      method: 'GET',
+      url: '/api/v1/profiles',
+    });
+    expect(profiles.json()).toMatchObject({
+      profiles: [expect.objectContaining({ name: 'Recovery source' })],
+    });
+    await recoveredApp.close();
+  });
+
+  it('preserves current data if restored profile files cannot be copied', async () => {
+    const app = await buildApplication({
+      config: createConfig(),
+      logger: false,
+    });
+    await app.inject({
+      method: 'POST',
+      payload: { name: 'Original profile' },
+      url: '/api/v1/profiles',
+    });
+    const createdBackup = await app.inject({
+      method: 'POST',
+      url: '/api/v1/backups',
+    });
+    const backup = backupSummarySchema.parse(createdBackup.json());
+    await app.inject({
+      method: 'POST',
+      payload: { name: 'Current profile' },
+      url: '/api/v1/profiles',
+    });
+    await app.inject({
+      method: 'POST',
+      url: `/api/v1/backups/${backup.id}/restore`,
+    });
+    await app.close();
+    await rm(join(dataDirectory, 'backups', backup.id, 'profiles'), {
+      force: true,
+      recursive: true,
+    });
+
+    await expect(
+      buildApplication({
+        config: createConfig(),
+        logger: false,
+      }),
+    ).rejects.toThrow();
+
+    const store = new MediaDeckStore(
+      join(dataDirectory, 'database', 'mediadeck.sqlite'),
+    );
+    expect(store.listProfiles().map((profile) => profile.name)).toEqual([
+      'Current profile',
+      'Original profile',
+    ]);
+    store.close();
+    await expect(access(join(dataDirectory, 'profiles'))).resolves.toBeUndefined();
   });
 
   it('checks and approves only a digest-pinned update with a backup', async () => {
