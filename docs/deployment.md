@@ -52,6 +52,13 @@ MediaDeck creates a worker only when a session is requested. Each worker:
 - is labeled and named by an opaque session UUID
 - has explicit CPU, memory, PID, and shared-memory ceilings
 
+On the first browser launch, MediaDeck checks whether the exact digest-pinned
+worker image is present and pulls it through the local Docker Engine when it is
+missing. The first launch can therefore take several minutes on a slower
+connection. Concurrent launch requests share the same pull instead of
+downloading the image more than once. A registry or network failure is reported
+in the launch error and can be retried without restarting MediaDeck.
+
 The application talks to the local Docker Engine over its Unix socket. Access
 to that socket is equivalent to administrative control of the Docker host.
 Keep MediaDeck private, patch it promptly, and do not expose the API outside the

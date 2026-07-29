@@ -40,6 +40,7 @@ Stages 1 through 8 establish:
 - Ephemeral Guest sessions with automatic cleanup
 - Profile locks, idle shutdown, health monitoring, and crash recovery
 - Docker workers keyed by opaque session IDs
+- Automatic digest-pinned Firefox worker pulls on clean hosts
 - A profile picker backed by the persistent profile API
 - A temporary Guest path and in-app profile creation
 - A controller-first home screen with operational Settings and Updates

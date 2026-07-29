@@ -32,6 +32,8 @@ export type BrowserWorkerDriver = {
   stop(workerId: string): Promise<void>;
 };
 
+const imagePullTimeoutMilliseconds = 15 * 60 * 1000;
+
 export class DisabledBrowserWorkerDriver implements BrowserWorkerDriver {
   getStreamTarget(): URL {
     throw new WorkerUnavailableError(
@@ -105,6 +107,23 @@ function readNumber(
   return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
 }
 
+function readPullError(responseBody: string): string | undefined {
+  for (const line of responseBody.split(/\r?\n/)) {
+    if (!line.trim()) continue;
+
+    try {
+      const event = parseJsonObject(line);
+      const detail = readString(readObject(event, 'errorDetail'), 'message');
+      const error = readString(event, 'error');
+      if (detail ?? error) return detail ?? error;
+    } catch {
+      // Successful Docker pull streams may contain progress text from older daemons.
+    }
+  }
+
+  return undefined;
+}
+
 function sumNetworkBytes(
   networks: Record<string, unknown> | undefined,
   key: 'rx_bytes' | 'tx_bytes',
@@ -118,6 +137,7 @@ function sumNetworkBytes(
 
 export class DockerBrowserWorkerDriver implements BrowserWorkerDriver {
   readonly #client: DockerEngineClient;
+  #imagePull: Promise<void> | undefined;
 
   constructor(private readonly config: BrowserWorkerConfig) {
     this.#client = new DockerEngineClient(config.dockerSocketPath);
@@ -148,6 +168,7 @@ export class DockerBrowserWorkerDriver implements BrowserWorkerDriver {
     const sharedMemoryBytes = this.config.sharedMemoryMegabytes * 1024 * 1024;
     const hardwareAcceleration = this.config.gpuMode === 'dri';
 
+    await this.ensureImageAvailable();
     await this.removeByName(containerName);
 
     const response = parseJsonObject(
@@ -390,6 +411,43 @@ export class DockerBrowserWorkerDriver implements BrowserWorkerDriver {
       expectedStatuses: [204, 404],
       method: 'DELETE',
       path: `/containers/${encodeURIComponent(containerName)}?force=true`,
+    });
+  }
+
+  private async ensureImageAvailable(): Promise<void> {
+    try {
+      await this.#client.request({
+        path: `/images/${encodeURIComponent(this.config.image)}/json`,
+      });
+      return;
+    } catch (error) {
+      if (!(error instanceof DockerEngineError) || error.statusCode !== 404) {
+        throw error;
+      }
+    }
+
+    this.#imagePull ??= this.pullImage().finally(() => {
+      this.#imagePull = undefined;
+    });
+    await this.#imagePull;
+  }
+
+  private async pullImage(): Promise<void> {
+    const responseBody = await this.#client.request({
+      expectedStatuses: [200],
+      method: 'POST',
+      path: `/images/create?fromImage=${encodeURIComponent(this.config.image)}`,
+      timeoutMilliseconds: imagePullTimeoutMilliseconds,
+    });
+    const pullError = readPullError(responseBody);
+    if (pullError) {
+      throw new WorkerUnavailableError(
+        `Docker Engine could not pull the browser worker image: ${pullError}`,
+      );
+    }
+
+    await this.#client.request({
+      path: `/images/${encodeURIComponent(this.config.image)}/json`,
     });
   }
 }

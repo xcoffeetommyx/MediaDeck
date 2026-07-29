@@ -15,6 +15,7 @@ type DockerEngineRequest = {
   expectedStatuses?: number[];
   method?: string;
   path: string;
+  timeoutMilliseconds?: number;
 };
 
 export class DockerEngineClient {
@@ -28,6 +29,7 @@ export class DockerEngineClient {
     expectedStatuses = [200],
     method = 'GET',
     path,
+    timeoutMilliseconds = this.timeoutMilliseconds,
   }: DockerEngineRequest): Promise<string> {
     const payload = body === undefined ? undefined : JSON.stringify(body);
 
@@ -67,11 +69,9 @@ export class DockerEngineClient {
       );
 
       dockerRequest.on('error', reject);
-      dockerRequest.setTimeout(this.timeoutMilliseconds, () => {
+      dockerRequest.setTimeout(timeoutMilliseconds, () => {
         dockerRequest.destroy(
-          new Error(
-            `Docker Engine did not respond within ${this.timeoutMilliseconds} ms`,
-          ),
+          new Error(`Docker Engine did not respond within ${timeoutMilliseconds} ms`),
         );
       });
       if (payload) {
