@@ -20,6 +20,7 @@ import { closeTopDialog } from './dialog-stack';
 import { Modal } from './Modal';
 import { useAutoFocus, useInputNavigation } from './navigation';
 import { SettingsView, UpdatesView } from './OperationsViews';
+import { createSessionId } from './session-identity';
 
 type View = 'profiles' | 'home' | 'settings' | 'updates' | 'youtube';
 
@@ -212,7 +213,7 @@ export function App() {
 
   const openYouTube = useCallback(() => {
     if (!activeProfile) return;
-    const sessionId = crypto.randomUUID();
+    const sessionId = createSessionId();
     const accessToken = createSessionAccessToken();
     writeYouTubeResumeContext(
       activeProfile.kind === 'profile'

@@ -4,6 +4,7 @@ import axe from 'axe-core';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { App } from './App';
+import { createSessionId } from './session-identity';
 
 const profile = {
   avatarId: 'ocean',
@@ -220,6 +221,20 @@ afterEach(() => {
 });
 
 describe('MediaDeck application shell', () => {
+  it('creates a valid session ID when randomUUID is unavailable over LAN HTTP', () => {
+    const randomSource = {
+      getRandomValues: (bytes: Uint8Array) => {
+        bytes.set([
+          0x2a, 0xbf, 0xc2, 0x94, 0xb1, 0x00, 0x48, 0xe1, 0x93, 0xad, 0xbd, 0x34, 0x71,
+          0x8e, 0x9a, 0x97,
+        ]);
+        return bytes;
+      },
+    } as unknown as Crypto;
+
+    expect(createSessionId(randomSource)).toBe('2abfc294-b100-48e1-93ad-bd34718e9a97');
+  });
+
   it('loads real profiles and enters the home screen', async () => {
     mockApi();
     const user = userEvent.setup();
