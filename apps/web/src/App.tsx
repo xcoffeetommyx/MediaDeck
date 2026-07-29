@@ -8,8 +8,6 @@ import type {
 } from '@mediadeck/contracts';
 import {
   type FormEvent,
-  type KeyboardEvent,
-  type ReactNode,
   useCallback,
   useEffect,
   useMemo,
@@ -18,6 +16,8 @@ import {
 } from 'react';
 
 import { ApiError, requestJson } from './api';
+import { closeTopDialog } from './dialog-stack';
+import { Modal } from './Modal';
 import { useAutoFocus, useInputNavigation } from './navigation';
 import { SettingsView, UpdatesView } from './OperationsViews';
 
@@ -167,6 +167,8 @@ export function App() {
   }, []);
 
   const goBack = useCallback(() => {
+    // Back always dismisses the topmost dialog before it changes view.
+    if (closeTopDialog()) return;
     if (overlay) {
       setOverlay(null);
       return;
@@ -264,7 +266,11 @@ export function App() {
                 className="profile-chip focusable"
                 data-focusable="true"
                 onClick={() => navigate('profiles')}
-                aria-label={`Switch profile. Current profile: ${profileName}`}
+                aria-label={
+                  activeProfile.kind === 'guest'
+                    ? 'Switch profile. Current profile: Guest, a temporary session'
+                    : `Switch profile. Current profile: ${profileName}`
+                }
               >
                 <Avatar
                   avatarId={
@@ -276,6 +282,11 @@ export function App() {
                   small
                 />
                 <span>{profileName}</span>
+                {activeProfile.kind === 'guest' ? (
+                  <span className="guest-tag" aria-hidden="true">
+                    Temporary
+                  </span>
+                ) : null}
               </button>
             ) : null}
 
@@ -307,6 +318,7 @@ export function App() {
         {view === 'home' && activeProfile ? (
           <Home
             capacity={capacity}
+            isGuest={activeProfile.kind === 'guest'}
             name={profileName}
             onOpenSettings={() => navigate('settings')}
             onOpenUpdates={() => navigate('updates')}
@@ -660,6 +672,8 @@ function YouTubeView({
 
       <div className="stream-toolbar">
         <button
+          aria-busy={exitRequested}
+          aria-label="Stop Firefox and return to MediaDeck"
           className="stream-control stream-return focusable"
           data-autofocus="true"
           data-focusable="true"
@@ -705,7 +719,11 @@ function YouTubeView({
             <div className="modal-app-icon youtube-icon" aria-hidden="true">
               <span />
             </div>
-            <p className="eyebrow">{profileName} · private session</p>
+            <p className="eyebrow">
+              {activeProfile.kind === 'guest'
+                ? 'Guest · temporary session'
+                : `${profileName} · private session`}
+            </p>
             <h1>
               {launchError
                 ? 'YouTube could not start.'
@@ -749,6 +767,7 @@ function YouTubeView({
               ) : null}
               {connectionError && session ? (
                 <button
+                  aria-busy={recovering}
                   className="primary-button focusable"
                   data-autofocus="true"
                   data-focusable="true"
@@ -868,7 +887,7 @@ function ProfilePicker({
         {!loading ? (
           <>
             <button
-              aria-label="Guest profile"
+              aria-label="Guest profile, a temporary session that is erased when you leave"
               className="profile-card focusable"
               data-focusable="true"
               data-autofocus={profiles.length === 0 && !error ? 'true' : undefined}
@@ -876,7 +895,9 @@ function ProfilePicker({
             >
               <Avatar avatarId="guest" name="Guest" index={profiles.length} />
               <span className="profile-card-name">Guest</span>
-              <span className="profile-card-detail">Erased when you leave</span>
+              <span className="profile-card-detail temporary">
+                Erased when you leave
+              </span>
             </button>
 
             <button
@@ -900,34 +921,45 @@ function ProfilePicker({
 
 function Home({
   capacity,
+  isGuest,
   name,
   onOpenSettings,
   onOpenUpdates,
   onOpenYouTube,
 }: {
   capacity: SessionCapacity | null;
+  isGuest: boolean;
   name: string;
   onOpenSettings: () => void;
   onOpenUpdates: () => void;
   onOpenYouTube: () => void;
 }) {
+  const atCapacity = capacity?.atCapacity ?? false;
+
   return (
     <section className="home-view" aria-labelledby="home-heading">
       <div className="section-heading">
         <p className="eyebrow">Welcome, {name}</p>
         <h1 id="home-heading">What do you want to watch?</h1>
+        {isGuest ? (
+          <p>
+            Guest is a temporary session. Its Firefox history, logins, and downloads are
+            deleted the moment you return to MediaDeck.
+          </p>
+        ) : null}
       </div>
 
       <div className="app-grid">
         <button
+          aria-describedby={atCapacity ? 'youtube-capacity-note' : undefined}
           aria-label="Launch YouTube"
           className="app-card youtube-card focusable"
           data-focusable="true"
           data-autofocus="true"
-          disabled={capacity?.atCapacity ?? false}
+          disabled={atCapacity}
           onClick={onOpenYouTube}
         >
-          <span className="app-card-status">
+          <span className={`app-card-status ${atCapacity ? 'busy' : ''}`}>
             {capacity?.atCapacity
               ? 'All streams busy'
               : capacity
@@ -940,13 +972,16 @@ function Home({
             </span>
             YouTube
           </span>
-          <span className="app-card-copy">
+          <span
+            className="app-card-copy"
+            id={atCapacity ? 'youtube-capacity-note' : undefined}
+          >
             {capacity?.atCapacity
               ? `The host is running ${capacity.activeSessions} of ${capacity.maxSessions} streams. Try again when one closes.`
               : 'Your subscriptions, playlists, and recommendations in Firefox.'}
           </span>
           <span className="app-card-action">
-            Start watching <b>→</b>
+            {atCapacity ? 'Waiting for a free stream' : 'Start watching'} <b>→</b>
           </span>
         </button>
 
@@ -1061,6 +1096,8 @@ function CreateProfileDialog({
         </label>
         <input
           id="profile-name"
+          aria-describedby={error ? 'profile-name-error' : undefined}
+          aria-invalid={error ? true : undefined}
           className="text-field focusable"
           data-focusable="true"
           data-autofocus="true"
@@ -1090,7 +1127,7 @@ function CreateProfileDialog({
         </fieldset>
 
         {error ? (
-          <p className="form-error" role="alert">
+          <p className="form-error" id="profile-name-error" role="alert">
             {error}
           </p>
         ) : null}
@@ -1106,6 +1143,7 @@ function CreateProfileDialog({
             Cancel
           </button>
           <button
+            aria-busy={saving}
             className="primary-button focusable"
             data-focusable="true"
             disabled={saving}
@@ -1116,62 +1154,6 @@ function CreateProfileDialog({
         </div>
       </form>
     </Modal>
-  );
-}
-
-function Modal({
-  children,
-  className = '',
-  label,
-  onClose,
-}: {
-  children: ReactNode;
-  className?: string;
-  label: string;
-  onClose: () => void;
-}) {
-  function trapFocus(event: KeyboardEvent<HTMLElement>) {
-    if (event.key !== 'Tab') return;
-
-    const controls = [
-      ...event.currentTarget.querySelectorAll<HTMLElement>(
-        '[data-focusable="true"]:not(:disabled)',
-      ),
-    ];
-    const first = controls[0];
-    const last = controls.at(-1);
-    if (!first || !last) return;
-
-    if (event.shiftKey && document.activeElement === first) {
-      event.preventDefault();
-      last.focus();
-    } else if (!event.shiftKey && document.activeElement === last) {
-      event.preventDefault();
-      first.focus();
-    }
-  }
-
-  return (
-    <div className="modal-backdrop" role="presentation" onMouseDown={onClose}>
-      <section
-        aria-label={label}
-        aria-modal="true"
-        className={`modal-card ${className}`}
-        onKeyDown={trapFocus}
-        onMouseDown={(event) => event.stopPropagation()}
-        role="dialog"
-      >
-        <button
-          aria-label={`Close ${label}`}
-          className="modal-close focusable"
-          data-focusable="true"
-          onClick={onClose}
-        >
-          ×
-        </button>
-        {children}
-      </section>
-    </div>
   );
 }
 

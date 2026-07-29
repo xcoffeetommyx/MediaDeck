@@ -30,6 +30,9 @@ import {
   requestJson,
   setAdministratorToken,
 } from './api';
+import { ConfirmDialog, type ConfirmRequest } from './Modal';
+
+type Tone = 'bad' | 'good' | 'neutral' | 'pending' | 'warn';
 
 type SettingsViewProperties = {
   controllerConnected: boolean;
@@ -82,6 +85,8 @@ export function SettingsView({
   const [busy, setBusy] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [loaded, setLoaded] = useState(false);
+  const [confirmRequest, setConfirmRequest] = useState<ConfirmRequest | null>(null);
   const addonFileInput = useRef<HTMLInputElement>(null);
 
   const load = useCallback(async () => {
@@ -113,12 +118,14 @@ export function SettingsView({
       setEvents([]);
       setResources(null);
     }
+    setLoaded(true);
   }, [profile]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
       void load().catch((loadError: unknown) => {
         setError(errorMessage(loadError, 'Operations could not be loaded.'));
+        setLoaded(true);
       });
     }, 0);
     return () => window.clearTimeout(timer);
@@ -151,6 +158,21 @@ export function SettingsView({
 
   const pinProtected = Boolean(administrator?.pinEnabled);
   const controlsLocked = pinProtected && !authorized(administrator);
+
+  // Confirmations run the same `run` pipeline as direct actions; the dialog
+  // only decides whether the request is made.
+  const confirmThen = useCallback(
+    (request: Omit<ConfirmRequest, 'onConfirm'>, action: () => void) => {
+      setConfirmRequest({
+        ...request,
+        onConfirm: () => {
+          setConfirmRequest(null);
+          action();
+        },
+      });
+    },
+    [],
+  );
 
   const installAddon = useCallback(
     async (event: ChangeEvent<HTMLInputElement>) => {
@@ -207,11 +229,17 @@ export function SettingsView({
         <StatusCard
           detail={
             workerHealth
-              ? `${workerHealth.transport.provider} · ${workerHealth.transport.mode}`
-              : 'Worker status is unavailable.'
+              ? `Transport: ${workerHealth.transport.provider} over ${workerHealth.transport.mode}.`
+              : 'No browser worker is configured for this host.'
           }
           label="Firefox worker"
-          tone={workerHealth?.status === 'online' ? 'good' : 'neutral'}
+          tone={
+            workerHealth?.status === 'online'
+              ? 'good'
+              : workerHealth?.status === 'offline'
+                ? 'warn'
+                : 'neutral'
+          }
           value={
             workerHealth?.status === 'online'
               ? 'Online'
@@ -227,7 +255,13 @@ export function SettingsView({
               : 'Reading storage and service health.'
           }
           label="System health"
-          tone={diagnostics?.status === 'healthy' ? 'good' : 'neutral'}
+          tone={
+            diagnostics?.status === 'healthy'
+              ? 'good'
+              : diagnostics
+                ? 'warn'
+                : 'pending'
+          }
           value={
             diagnostics?.status === 'healthy'
               ? 'Healthy'
@@ -243,18 +277,38 @@ export function SettingsView({
               : 'Database diagnostics are loading.'
           }
           label="Database"
-          tone={diagnostics?.database.healthy ? 'good' : 'neutral'}
+          tone={
+            diagnostics?.database.healthy ? 'good' : diagnostics ? 'bad' : 'pending'
+          }
           value={diagnostics?.database.healthy ? 'Healthy' : 'Checking'}
         />
         <StatusCard
           detail={
             resources
               ? `${resources.capacity.activeSessions} of ${resources.capacity.maxSessions} active · ${resources.capacity.availableSlots} available`
-              : 'Unlock to inspect stream capacity.'
+              : loaded
+                ? 'Unlock administrator controls to inspect stream capacity.'
+                : 'Reading stream capacity.'
           }
           label="Stream capacity"
-          tone={resources && !resources.capacity.atCapacity ? 'good' : 'neutral'}
-          value={resources?.capacity.atCapacity ? 'Full' : 'Available'}
+          tone={
+            !resources
+              ? loaded
+                ? 'neutral'
+                : 'pending'
+              : resources.capacity.atCapacity
+                ? 'warn'
+                : 'good'
+          }
+          value={
+            !resources
+              ? loaded
+                ? 'Locked'
+                : 'Checking'
+              : resources.capacity.atCapacity
+                ? 'Full'
+                : 'Available'
+          }
         />
       </div>
 
@@ -262,23 +316,29 @@ export function SettingsView({
         <OperationCard
           action={
             <div className="row-actions">
+              {/* The picker is opened by the button beside it, so it stays out
+                  of the tab and directional-focus order. */}
               <input
                 accept=".xpi,application/x-xpinstall"
+                aria-hidden="true"
                 aria-label="Choose Firefox add-on package"
                 className="visually-hidden"
                 onChange={(event) => void installAddon(event)}
                 ref={addonFileInput}
+                tabIndex={-1}
                 type="file"
               />
               <button
+                aria-busy={busy === 'addon-install'}
                 className="primary-button focusable"
                 data-focusable="true"
                 disabled={busy !== null || controlsLocked || !profile}
                 onClick={() => addonFileInput.current?.click()}
               >
-                {busy === 'addon-install' ? 'Checking packageâ€¦' : 'Install XPI'}
+                {busy === 'addon-install' ? 'Checking package…' : 'Install XPI'}
               </button>
               <button
+                aria-busy={busy === 'addon-scan'}
                 className="secondary-button focusable"
                 data-focusable="true"
                 disabled={busy !== null || controlsLocked}
@@ -306,12 +366,17 @@ export function SettingsView({
         >
           {!profile ? (
             <p className="operation-empty">
-              Guest is temporary and does not keep Firefox add-ons.
+              <strong>Guest sessions do not keep add-ons.</strong>
+              Guest storage is erased on return, so managed extensions belong to a
+              persistent profile.
             </p>
+          ) : !loaded ? (
+            <SkeletonRows rows={2} />
           ) : addons.length === 0 ? (
             <p className="operation-empty">
-              No managed add-ons. Install a Mozilla-signed XPI with an explicit Firefox
-              extension ID.
+              <strong>No managed add-ons yet.</strong>
+              Install a Mozilla-signed XPI that declares an explicit Firefox extension
+              ID.
             </p>
           ) : (
             <div className="backup-list">
@@ -322,8 +387,8 @@ export function SettingsView({
                       {addon.name} <span>v{addon.version}</span>
                     </strong>
                     <span>
-                      {addon.enabled ? 'Enabled' : 'Disabled'} Â·{' '}
-                      {addon.permissions.length} declared permissions Â· {addon.source}
+                      {addon.enabled ? 'Enabled' : 'Disabled'} ·{' '}
+                      {addon.permissions.length} declared permissions · {addon.source}
                     </span>
                     <code>{addon.id}</code>
                   </div>
@@ -352,19 +417,29 @@ export function SettingsView({
                       {addon.enabled ? 'Disable' : 'Enable'}
                     </button>
                     <button
+                      aria-label={`Remove ${addon.name}`}
                       className="secondary-button danger-button focusable"
                       data-focusable="true"
                       disabled={busy !== null || controlsLocked}
-                      onClick={() => {
-                        if (!window.confirm(`Remove ${addon.name}?`)) return;
-                        void run(`addon-remove-${addon.id}`, async () => {
-                          await requestJson(
-                            `/api/v1/profiles/${profile.id}/addons/${encodeURIComponent(addon.id)}`,
-                            { method: 'DELETE' },
-                          );
-                          return `${addon.name} removed.`;
-                        });
-                      }}
+                      onClick={() =>
+                        confirmThen(
+                          {
+                            body: `${addon.name} ${addon.version} will be removed from ${profile.name} only. Other profiles keep their own copy. The change applies the next time Firefox launches.`,
+                            confirmLabel: 'Remove add-on',
+                            danger: true,
+                            eyebrow: 'Firefox add-ons',
+                            title: `Remove ${addon.name}?`,
+                          },
+                          () =>
+                            void run(`addon-remove-${addon.id}`, async () => {
+                              await requestJson(
+                                `/api/v1/profiles/${profile.id}/addons/${encodeURIComponent(addon.id)}`,
+                                { method: 'DELETE' },
+                              );
+                              return `${addon.name} removed.`;
+                            }),
+                        )
+                      }
                     >
                       Remove
                     </button>
@@ -375,7 +450,7 @@ export function SettingsView({
           )}
           <p className="operation-help">
             Add-on changes apply on the next Firefox launch. Install a newer package
-            with the same ID to update it. Stop this profileâ€™s active stream before
+            with the same ID to update it. Stop this profile’s active stream before
             making changes.
           </p>
         </OperationCard>
@@ -390,20 +465,24 @@ export function SettingsView({
           title="Active stream resources"
           wide
         >
-          {!resources ? (
+          {!loaded ? (
+            <SkeletonRows rows={2} />
+          ) : !resources ? (
             <p className="operation-empty">
+              <strong>Locked.</strong>
               Unlock administrator controls to view per-session resource usage.
             </p>
           ) : resources.sessions.length === 0 ? (
             <p className="operation-empty">
-              No streams are active. Limits are ready for the next Firefox worker.
+              <strong>No streams are active.</strong>
+              Limits are reserved and ready for the next Firefox worker.
             </p>
           ) : (
             resources.sessions.map((sample, index) => (
               <SettingRow
                 action={
                   <span className="stage-badge">
-                    {sample.gpu.mode === 'dri' ? 'GPU' : 'Software'}
+                    {sample.gpu.mode === 'dri' ? 'GPU encode' : 'Software encode'}
                   </span>
                 }
                 detail={`${sample.cpuPercent === null ? 'CPU sampling' : `${sample.cpuPercent.toFixed(1)}% CPU`} · ${formatBytes(sample.memoryBytes)} memory · ${formatBytes(sample.networkReceiveBytes)} down / ${formatBytes(sample.networkTransmitBytes)} up · ${sample.pids} processes`}
@@ -424,6 +503,7 @@ export function SettingsView({
 
         <OperationCard
           badge={pinProtected ? 'PIN protected' : 'Tailnet only'}
+          badgeTone={pinProtected ? 'good' : 'neutral'}
           eyebrow="Security"
           title="Administrator access"
         >
@@ -464,6 +544,7 @@ export function SettingsView({
                 value={newPin}
               />
               <button
+                aria-busy={busy === 'pin'}
                 className="primary-button focusable"
                 data-focusable="true"
                 disabled={busy !== null || newPin.length < 4}
@@ -606,6 +687,7 @@ export function SettingsView({
         <OperationCard
           action={
             <button
+              aria-busy={busy === 'backup'}
               className="primary-button focusable"
               data-focusable="true"
               disabled={busy !== null || controlsLocked}
@@ -625,8 +707,14 @@ export function SettingsView({
           title="Backups"
           wide
         >
-          {backups.length === 0 ? (
-            <p className="operation-empty">No backups yet.</p>
+          {!loaded ? (
+            <SkeletonRows rows={2} />
+          ) : backups.length === 0 ? (
+            <p className="operation-empty">
+              <strong>No backups yet.</strong>
+              Create one before an update or a risky change; MediaDeck keeps the newest{' '}
+              {settings?.backupRetentionCount ?? 5}.
+            </p>
           ) : (
             <div className="backup-list">
               {backups.slice(0, 5).map((backup) => (
@@ -640,42 +728,56 @@ export function SettingsView({
                   </div>
                   <div className="row-actions">
                     <button
+                      aria-label={`Restore the backup from ${formatDateTime(backup.createdAt)}`}
                       className="secondary-button focusable"
                       data-focusable="true"
                       disabled={busy !== null || controlsLocked}
-                      onClick={() => {
-                        if (
-                          !window.confirm(
-                            'Restore this backup on the next MediaDeck restart?',
-                          )
+                      onClick={() =>
+                        confirmThen(
+                          {
+                            body: `The backup from ${formatDateTime(backup.createdAt)} replaces the current database and all ${backup.profileCount} profiles the next time the app container restarts. Nothing changes until then.`,
+                            confirmLabel: 'Schedule restore',
+                            eyebrow: 'Recovery',
+                            title: 'Restore this backup?',
+                          },
+                          () =>
+                            void run('restore', async () => {
+                              const response = await requestJson<RestoreBackupResponse>(
+                                `/api/v1/backups/${backup.id}/restore`,
+                                { method: 'POST' },
+                              );
+                              return response.restartRequired
+                                ? 'Restore scheduled. Restart the app container to apply it.'
+                                : 'Restore scheduled.';
+                            }),
                         )
-                          return;
-                        void run('restore', async () => {
-                          const response = await requestJson<RestoreBackupResponse>(
-                            `/api/v1/backups/${backup.id}/restore`,
-                            { method: 'POST' },
-                          );
-                          return response.restartRequired
-                            ? 'Restore scheduled. Restart the app container to apply it.'
-                            : 'Restore scheduled.';
-                        });
-                      }}
+                      }
                     >
                       Restore
                     </button>
                     <button
+                      aria-label={`Delete the backup from ${formatDateTime(backup.createdAt)}`}
                       className="secondary-button danger-button focusable"
                       data-focusable="true"
                       disabled={busy !== null || controlsLocked}
-                      onClick={() => {
-                        if (!window.confirm('Permanently delete this backup?')) return;
-                        void run('delete-backup', async () => {
-                          await requestJson(`/api/v1/backups/${backup.id}`, {
-                            method: 'DELETE',
-                          });
-                          return 'Backup deleted.';
-                        });
-                      }}
+                      onClick={() =>
+                        confirmThen(
+                          {
+                            body: `The backup from ${formatDateTime(backup.createdAt)} will be permanently deleted. This cannot be undone.`,
+                            confirmLabel: 'Delete backup',
+                            danger: true,
+                            eyebrow: 'Recovery',
+                            title: 'Delete this backup?',
+                          },
+                          () =>
+                            void run('delete-backup', async () => {
+                              await requestJson(`/api/v1/backups/${backup.id}`, {
+                                method: 'DELETE',
+                              });
+                              return 'Backup deleted.';
+                            }),
+                        )
+                      }
                     >
                       Delete
                     </button>
@@ -689,6 +791,7 @@ export function SettingsView({
         <OperationCard
           action={
             <button
+              aria-busy={busy === 'reconcile'}
               className="secondary-button focusable"
               data-focusable="true"
               disabled={busy !== null || controlsLocked}
@@ -701,7 +804,7 @@ export function SettingsView({
                 })
               }
             >
-              Run recovery check
+              {busy === 'reconcile' ? 'Checking…' : 'Run recovery check'}
             </button>
           }
           eyebrow="Diagnostics"
@@ -709,9 +812,18 @@ export function SettingsView({
           wide
         >
           {controlsLocked ? (
-            <p className="operation-empty">Unlock to view the operations log.</p>
+            <p className="operation-empty">
+              <strong>Locked.</strong>
+              Unlock administrator controls to read the operations log.
+            </p>
+          ) : !loaded ? (
+            <SkeletonRows rows={3} />
           ) : events.length === 0 ? (
-            <p className="operation-empty">No recorded operations yet.</p>
+            <p className="operation-empty">
+              <strong>No recorded operations yet.</strong>
+              Backups, profile changes, and recovery checks are listed here as they
+              happen.
+            </p>
           ) : (
             <ol className="event-list">
               {events.map((event) => (
@@ -727,6 +839,14 @@ export function SettingsView({
           )}
         </OperationCard>
       </div>
+
+      {confirmRequest ? (
+        <ConfirmDialog
+          busy={busy !== null}
+          onCancel={() => setConfirmRequest(null)}
+          request={confirmRequest}
+        />
+      ) : null}
     </DetailView>
   );
 }
@@ -756,6 +876,7 @@ export function UpdatesView({
   const [status, setStatus] = useState<UpdateStatus | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [confirmRequest, setConfirmRequest] = useState<ConfirmRequest | null>(null);
 
   const load = useCallback(async () => {
     const [nextAdministrator, nextStatus] = await Promise.all([
@@ -806,6 +927,20 @@ export function UpdatesView({
             ? 'Manifest needed'
             : 'Current';
 
+  const stateTone: Tone =
+    status?.state === 'available' || status?.state === 'approved'
+      ? 'warn'
+      : status?.state === 'error'
+        ? 'bad'
+        : status?.state === 'unconfigured'
+          ? 'neutral'
+          : status
+            ? 'good'
+            : 'pending';
+
+  const unconfigured = status?.state === 'unconfigured';
+  const availableRelease = status?.state === 'available' ? status.release : null;
+
   return (
     <DetailView
       description="Checks are automatic; installation always waits for approval."
@@ -825,12 +960,16 @@ export function UpdatesView({
         <div>
           <span className="update-label">Installed version</span>
           <strong>MediaDeck {version}</strong>
-          <p>{status?.message ?? 'Reading update status…'}</p>
+          <p>
+            {unconfigured
+              ? 'No release manifest is configured, so MediaDeck is not checking for updates. An operator can point the host at an HTTPS manifest to enable checks.'
+              : (status?.message ?? 'Reading update status…')}
+          </p>
           {status?.checkedAt ? (
             <small>Last checked {formatDateTime(status.checkedAt)}</small>
           ) : null}
         </div>
-        <span className="stage-badge">{stateLabel}</span>
+        <span className={`stage-badge ${stateTone}`}>{stateLabel}</span>
       </div>
 
       <OperationCard eyebrow="Release controls" title="Update workflow" wide>
@@ -861,6 +1000,8 @@ export function UpdatesView({
         ) : (
           <div className="operation-controls">
             <button
+              aria-busy={busy}
+              aria-describedby={unconfigured ? 'update-manifest-note' : undefined}
               className="secondary-button focusable"
               data-focusable="true"
               disabled={busy || !status?.manifestConfigured}
@@ -874,34 +1015,44 @@ export function UpdatesView({
             >
               {busy ? 'Working…' : 'Check now'}
             </button>
-            {status?.state === 'available' && status.release ? (
+            {availableRelease ? (
               <button
                 className="primary-button focusable"
                 data-focusable="true"
                 disabled={busy}
-                onClick={() => {
-                  if (
-                    !window.confirm(
-                      `Approve MediaDeck ${status.release?.version} and create a backup?`,
-                    )
-                  )
-                    return;
-                  void runUpdate(() =>
-                    requestJson<UpdateStatus>('/api/v1/updates/approve', {
-                      body: JSON.stringify({
-                        version: status.release?.version,
-                      }),
-                      headers: { 'Content-Type': 'application/json' },
-                      method: 'POST',
-                    }),
-                  );
-                }}
+                onClick={() =>
+                  setConfirmRequest({
+                    body: `MediaDeck ${availableRelease.version} will be recorded as approved and a fresh backup will be created first. The digest-pinned image is applied later from the host runbook — nothing restarts now.`,
+                    confirmLabel: 'Approve and back up',
+                    eyebrow: 'Release controls',
+                    onConfirm: () => {
+                      setConfirmRequest(null);
+                      void runUpdate(() =>
+                        requestJson<UpdateStatus>('/api/v1/updates/approve', {
+                          body: JSON.stringify({
+                            version: availableRelease.version,
+                          }),
+                          headers: { 'Content-Type': 'application/json' },
+                          method: 'POST',
+                        }),
+                      );
+                    },
+                    title: `Approve MediaDeck ${availableRelease.version}?`,
+                  })
+                }
               >
                 Approve and back up
               </button>
             ) : null}
           </div>
         )}
+
+        {unconfigured ? (
+          <p className="operation-help" id="update-manifest-note">
+            Release checks stay off until the host sets an HTTPS update manifest. See
+            the deployment runbook for <code>MEDIADECK_UPDATE_MANIFEST_URL</code>.
+          </p>
+        ) : null}
 
         {status?.release ? (
           <div className="release-detail">
@@ -923,12 +1074,20 @@ export function UpdatesView({
         ) : null}
         {status?.state === 'approved' ? (
           <p className="operation-help">
-            Approval is recorded with backup {status.backupId}. Apply the digest-pinned
-            image with the host runbook; the web app cannot silently replace its own
-            container.
+            Approval is recorded with backup <code>{status.backupId}</code>. Apply the
+            digest-pinned image with the host runbook; the web app cannot silently
+            replace its own container.
           </p>
         ) : null}
       </OperationCard>
+
+      {confirmRequest ? (
+        <ConfirmDialog
+          busy={busy}
+          onCancel={() => setConfirmRequest(null)}
+          request={confirmRequest}
+        />
+      ) : null}
     </DetailView>
   );
 }
@@ -965,6 +1124,7 @@ function AdministratorUnlock({
         value={pin}
       />
       <button
+        aria-busy={busy}
         className="primary-button focusable"
         data-focusable="true"
         disabled={busy || pin.length < 4}
@@ -1017,11 +1177,11 @@ function StatusCard({
 }: {
   detail: string;
   label: string;
-  tone: 'good' | 'neutral';
+  tone: Tone;
   value: string;
 }) {
   return (
-    <article className="status-card">
+    <article className={`status-card ${tone}`}>
       <span className="status-card-label">{label}</span>
       <i className={`status-card-light ${tone}`} aria-hidden="true" />
       <strong>{value}</strong>
@@ -1033,6 +1193,7 @@ function StatusCard({
 function OperationCard({
   action,
   badge,
+  badgeTone = 'neutral',
   children,
   eyebrow,
   title,
@@ -1040,6 +1201,7 @@ function OperationCard({
 }: {
   action?: ReactNode;
   badge?: string;
+  badgeTone?: Tone;
   children: ReactNode;
   eyebrow: string;
   title: string;
@@ -1052,10 +1214,23 @@ function OperationCard({
           <span className="update-label">{eyebrow}</span>
           <h2>{title}</h2>
         </div>
-        {badge ? <span className="stage-badge">{badge}</span> : action}
+        {badge ? <span className={`stage-badge ${badgeTone}`}>{badge}</span> : action}
       </div>
       {children}
     </section>
+  );
+}
+
+function SkeletonRows({ rows = 3 }: { rows?: number }) {
+  return (
+    <div aria-hidden="true">
+      {Array.from({ length: rows }, (_, index) => (
+        <div className="skeleton-row" key={index}>
+          <span className="skeleton-line" style={{ width: '45%' }} />
+          <span className="skeleton-line" style={{ height: '0.55rem', width: '70%' }} />
+        </div>
+      ))}
+    </div>
   );
 }
 
