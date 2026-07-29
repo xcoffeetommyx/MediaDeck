@@ -82,64 +82,6 @@ export type ProfileListResponse = z.infer<typeof profileListResponseSchema>;
 export type CreateProfileRequest = z.infer<typeof createProfileRequestSchema>;
 export type UpdateProfileRequest = z.infer<typeof updateProfileRequestSchema>;
 
-export const addonIdSchema = z
-  .string()
-  .trim()
-  .min(1)
-  .max(255)
-  .refine(
-    (value) =>
-      [...value].every((character) => {
-        const code = character.charCodeAt(0);
-        return code >= 32 && code !== 127;
-      }),
-    {
-      message: 'Add-on ID contains unsupported characters',
-    },
-  );
-
-export const addonVersionSchema = z
-  .string()
-  .trim()
-  .regex(
-    /^\d+(?:\.\d+){0,3}(?:[A-Za-z][0-9A-Za-z.-]*)?$/,
-    'Add-on version is unsupported',
-  );
-
-export const profileAddonSchema = z.object({
-  enabled: z.boolean(),
-  id: addonIdSchema,
-  installedAt: z.iso.datetime(),
-  maxFirefoxVersion: z.string().nullable(),
-  minFirefoxVersion: z.string().nullable(),
-  name: z.string().min(1).max(128),
-  permissions: z.array(z.string().min(1).max(255)).max(256),
-  profileId: z.uuid(),
-  sha256: z.string().regex(/^[a-f0-9]{64}$/),
-  source: z.enum(['upload', 'watched']),
-  updatedAt: z.iso.datetime(),
-  version: addonVersionSchema,
-});
-
-export const profileAddonListResponseSchema = z.object({
-  addons: z.array(profileAddonSchema),
-});
-
-export const updateProfileAddonRequestSchema = z.object({
-  enabled: z.boolean(),
-});
-
-export const addonWatchScanResponseSchema = z.object({
-  imported: z.number().int().nonnegative(),
-  rejected: z.number().int().nonnegative(),
-  skipped: z.number().int().nonnegative(),
-});
-
-export type ProfileAddon = z.infer<typeof profileAddonSchema>;
-export type ProfileAddonListResponse = z.infer<typeof profileAddonListResponseSchema>;
-export type UpdateProfileAddonRequest = z.infer<typeof updateProfileAddonRequestSchema>;
-export type AddonWatchScanResponse = z.infer<typeof addonWatchScanResponseSchema>;
-
 export const mediaApplicationIdSchema = z
   .string()
   .trim()
@@ -325,6 +267,7 @@ export const streamQualityPresetSchema = z.enum([
 export const administratorSettingsSchema = z.object({
   automaticUpdateChecks: z.boolean(),
   backupRetentionCount: z.number().int().min(1).max(20),
+  disableAv1Playback: z.boolean().default(false),
   streamQualityPreset: streamQualityPresetSchema.default('balanced'),
 });
 

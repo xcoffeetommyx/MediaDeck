@@ -118,6 +118,7 @@ function createManager(maxSessions = 1): SessionManager {
       startUrl: 'https://www.youtube.com/',
       timezone: 'Etc/UTC',
       videoBitrate: 12,
+      vaapiDriver: 'auto',
     },
   });
 }
@@ -235,7 +236,7 @@ describe('session manager', () => {
       kind: 'profile',
       profileId: profile.id,
     });
-    const marker = join(paths.profiles, profile.id, 'firefox', 'marker.txt');
+    const marker = join(paths.profiles, profile.id, 'brave-origin', 'marker.txt');
     await writeFile(marker, 'persistent');
 
     driver.states.clear();
@@ -249,7 +250,7 @@ describe('session manager', () => {
       status: 'starting',
     });
     expect(driver.starts).toHaveLength(2);
-    expect(driver.starts[1]?.storagePath).toBe(`profiles/${profile.id}/firefox`);
+    expect(driver.starts[1]?.storagePath).toBe(`profiles/${profile.id}/brave-origin`);
     await expect(access(marker)).resolves.toBeUndefined();
 
     await sessions.shutdown();

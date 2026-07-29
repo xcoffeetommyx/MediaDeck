@@ -30,11 +30,11 @@ type SessionManagerOptions = {
   idleTimeoutSeconds: number;
   maxSessions: number;
   getStreamQuality?: () => StreamQuality;
+  getDisableAv1Playback?: () => boolean;
   now?: () => Date;
   onMonitorError?: (error: unknown) => void;
   operations?: OperationCoordinator;
   paths: StoragePaths;
-  prepareProfileAddons?: (profileId: string) => Promise<void>;
   store: MediaDeckStore;
   workerDriver: BrowserWorkerDriver;
   workerConfig: BrowserWorkerConfig;
@@ -86,13 +86,13 @@ export class SessionManager {
   readonly #applications: ApplicationRegistry;
   readonly #healthIntervalMilliseconds: number;
   readonly #getStreamQuality: () => StreamQuality;
+  readonly #getDisableAv1Playback: () => boolean;
   readonly #idleTimeoutMilliseconds: number;
   readonly #maxSessions: number;
   readonly #now: () => Date;
   readonly #onMonitorError: (error: unknown) => void;
   readonly #operations: OperationCoordinator;
   readonly #paths: StoragePaths;
-  readonly #prepareProfileAddons: (profileId: string) => Promise<void>;
   readonly #store: MediaDeckStore;
   readonly #workerDriver: BrowserWorkerDriver;
   readonly #workerConfig: BrowserWorkerConfig;
@@ -105,11 +105,11 @@ export class SessionManager {
     idleTimeoutSeconds,
     maxSessions,
     getStreamQuality,
+    getDisableAv1Playback = () => false,
     now = () => new Date(),
     onMonitorError = () => undefined,
     operations = new OperationCoordinator(),
     paths,
-    prepareProfileAddons = () => Promise.resolve(),
     store,
     workerDriver,
     workerConfig,
@@ -122,13 +122,13 @@ export class SessionManager {
         framerate: workerConfig.framerate,
         videoBitrate: workerConfig.videoBitrate,
       }));
+    this.#getDisableAv1Playback = getDisableAv1Playback;
     this.#idleTimeoutMilliseconds = idleTimeoutSeconds * 1000;
     this.#maxSessions = maxSessions;
     this.#now = now;
     this.#onMonitorError = onMonitorError;
     this.#operations = operations;
     this.#paths = paths;
-    this.#prepareProfileAddons = prepareProfileAddons;
     this.#store = store;
     this.#workerDriver = workerDriver;
     this.#workerConfig = workerConfig;
@@ -148,12 +148,12 @@ export class SessionManager {
     const timestamp = this.#now().toISOString();
     const storagePath =
       input.kind === 'profile'
-        ? `profiles/${input.profileId}/firefox`
-        : `runtime/guests/${id}/firefox`;
+        ? `profiles/${input.profileId}/brave-origin`
+        : `runtime/guests/${id}/brave-origin`;
     const filesystemPath =
       input.kind === 'profile'
-        ? resolve(this.#paths.profiles, input.profileId, 'firefox')
-        : resolve(this.#paths.guests, id, 'firefox');
+        ? resolve(this.#paths.profiles, input.profileId, 'brave-origin')
+        : resolve(this.#paths.guests, id, 'brave-origin');
 
     const session = await this.#operations.run(() =>
       Promise.resolve(
@@ -600,19 +600,12 @@ export class SessionManager {
   private async startWorker(
     session: StoredBrowserSession,
   ): Promise<StoredBrowserSession> {
-    if (session.kind === 'profile' && session.profileId) {
-      await this.#prepareProfileAddons(session.profileId);
-    }
     const streamQuality = this.#getStreamQuality();
     const { workerId } = await this.#workerDriver.start({
+      disableAv1Playback: this.#getDisableAv1Playback(),
       framerate: streamQuality.framerate,
       kind: session.kind,
       launchUrl: this.#applications.require(session.applicationId).launchUrl,
-      ...(session.kind === 'profile'
-        ? {
-            policyStoragePath: `${session.storagePath}/mediadeck/policy`,
-          }
-        : {}),
       sessionId: session.id,
       storagePath: session.storagePath,
       videoBitrate: streamQuality.videoBitrate,
@@ -681,8 +674,8 @@ export class SessionManager {
 
   private sessionFilesystemPath(session: StoredBrowserSession): string {
     return session.kind === 'profile' && session.profileId
-      ? resolve(this.#paths.profiles, session.profileId, 'firefox')
-      : resolve(this.#paths.guests, session.id, 'firefox');
+      ? resolve(this.#paths.profiles, session.profileId, 'brave-origin')
+      : resolve(this.#paths.guests, session.id, 'brave-origin');
   }
 
   private recordEventSafely(

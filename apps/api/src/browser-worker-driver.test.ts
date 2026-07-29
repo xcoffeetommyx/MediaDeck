@@ -9,8 +9,7 @@ import { afterEach, expect, it } from 'vitest';
 
 import { DockerBrowserWorkerDriver } from './browser-worker-driver.js';
 
-const workerImage =
-  'ghcr.io/linuxserver/firefox@sha256:e4b9310d76fbaef54de9b6a440113729c442125f50668ad9e9f678c0af1ae700';
+const workerImage = 'mediadeck-brave-origin:0.1.0';
 
 let temporaryDirectory: string | undefined;
 let server: Server | undefined;
@@ -50,6 +49,7 @@ function workerConfig(socketPath: string): BrowserWorkerConfig {
     startUrl: 'https://www.youtube.com/',
     timezone: 'Etc/UTC',
     videoBitrate: 6,
+    vaapiDriver: 'auto',
   };
 }
 
@@ -137,7 +137,7 @@ it('pulls a missing digest-pinned worker image once for concurrent starts', asyn
         kind: 'guest',
         launchUrl: 'https://www.youtube.com/',
         sessionId,
-        storagePath: `runtime/guests/${sessionId}/firefox`,
+        storagePath: `runtime/guests/${sessionId}/brave-origin`,
         videoBitrate: 6,
       }),
     ),
@@ -182,7 +182,7 @@ it('reports an error embedded in a Docker image pull stream', async () => {
       kind: 'guest',
       launchUrl: 'https://www.youtube.com/',
       sessionId: '2abfc294-b100-48e1-93ad-bd34718e9a97',
-      storagePath: 'runtime/guests/2abfc294-b100-48e1-93ad-bd34718e9a97/firefox',
+      storagePath: 'runtime/guests/2abfc294-b100-48e1-93ad-bd34718e9a97/brave-origin',
       videoBitrate: 6,
     }),
   ).rejects.toThrow(
@@ -273,14 +273,16 @@ it('uses DRI automatically and falls back to software when the device is unavail
 
   const config = workerConfig(path);
   config.gpuMode = 'auto';
+  config.vaapiDriver = 'i965';
   const driver = new DockerBrowserWorkerDriver(config);
   await expect(
     driver.start({
+      disableAv1Playback: true,
       framerate: 30,
       kind: 'guest',
       launchUrl: 'https://www.youtube.com/',
       sessionId: '2abfc294-b100-48e1-93ad-bd34718e9a97',
-      storagePath: 'runtime/guests/2abfc294-b100-48e1-93ad-bd34718e9a97/firefox',
+      storagePath: 'runtime/guests/2abfc294-b100-48e1-93ad-bd34718e9a97/brave-origin',
       videoBitrate: 6,
     }),
   ).resolves.toEqual({ workerId: 'software-worker' });
@@ -296,6 +298,12 @@ it('uses DRI automatically and falls back to software when the device is unavail
     Labels: Record<string, string>;
   };
   expect(hardware.Env).toContain('AUTO_GPU=true');
+  expect(hardware.Env).toContain('LIBVA_DRIVER_NAME=i965');
+  expect(hardware.Env).toContain('LIBVA_DRIVERS_PATH=/usr/lib/x86_64-linux-gnu/dri');
+  expect(hardware.Env).toContain(
+    'BRAVE_CLI=--kiosk --no-first-run --disable-session-crashed-bubble --load-extension=/opt/mediadeck/extensions/disable-av1 https://www.youtube.com/',
+  );
+  expect(hardware.Env.some((value) => value.startsWith('FIREFOX_CLI='))).toBe(false);
   expect(hardware.Env).toContain('SELKIES_USE_CPU=false|locked');
   expect(hardware.HostConfig.Devices).toHaveLength(1);
   expect(hardware.Labels['io.mediadeck.gpu.mode']).toBe('dri');

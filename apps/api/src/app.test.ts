@@ -10,7 +10,6 @@ import {
   browserWorkerHealthResponseSchema,
   healthResponseSchema,
   operationEventListResponseSchema,
-  profileAddonListResponseSchema,
   profileSchema,
   publicConfigResponseSchema,
   sessionCapacitySchema,
@@ -64,12 +63,6 @@ class TestBrowserWorkerDriver implements BrowserWorkerDriver {
 }
 
 const createConfig = (maxSessions = 1): ServerConfig => ({
-  addons: {
-    firefoxMajorVersion: 153,
-    maxPackageBytes: 25 * 1024 * 1024,
-    watchEnabled: false,
-    watchIntervalSeconds: 60,
-  },
   appVersion: '0.1.0-test',
   browserWorker: {
     cpus: 2,
@@ -92,6 +85,7 @@ const createConfig = (maxSessions = 1): ServerConfig => ({
     startUrl: 'https://www.youtube.com/',
     timezone: 'Etc/UTC',
     videoBitrate: 12,
+    vaapiDriver: 'auto',
   },
   dataDirectory,
   host: '127.0.0.1',
@@ -326,7 +320,7 @@ describe('MediaDeck API', () => {
         {
           available: true,
           description:
-            'Subscriptions, playlists, recommendations, and playback in isolated Firefox.',
+            'Subscriptions, playlists, recommendations, and playback in isolated Brave Origin.',
           displayName: 'YouTube',
           id: 'youtube',
         },
@@ -355,7 +349,7 @@ describe('MediaDeck API', () => {
     await app.close();
   });
 
-  it('applies stream quality presets to new sessions and locks changes while active', async () => {
+  it('applies playback settings to new sessions and locks changes while active', async () => {
     const driver = new TestBrowserWorkerDriver();
     const app = await buildApplication({
       config: createConfig(),
@@ -367,7 +361,10 @@ describe('MediaDeck API', () => {
       method: 'GET',
       url: '/api/v1/settings',
     });
-    expect(initial.json()).toMatchObject({ streamQualityPreset: 'high-quality' });
+    expect(initial.json()).toMatchObject({
+      disableAv1Playback: false,
+      streamQualityPreset: 'high-quality',
+    });
 
     const updated = await app.inject({
       method: 'PATCH',
@@ -375,6 +372,12 @@ describe('MediaDeck API', () => {
       url: '/api/v1/settings',
     });
     expect(updated.json()).toMatchObject({ streamQualityPreset: 'balanced' });
+    const compatibility = await app.inject({
+      method: 'PATCH',
+      payload: { disableAv1Playback: true },
+      url: '/api/v1/settings',
+    });
+    expect(compatibility.json()).toMatchObject({ disableAv1Playback: true });
 
     const launch = await app.inject({
       method: 'POST',
@@ -387,6 +390,7 @@ describe('MediaDeck API', () => {
     });
     expect(launch.statusCode).toBe(200);
     expect(driver.starts.at(-1)).toMatchObject({
+      disableAv1Playback: true,
       framerate: 30,
       videoBitrate: 6,
     });
@@ -399,7 +403,7 @@ describe('MediaDeck API', () => {
     expect(blocked.statusCode).toBe(409);
     expect(blocked.json()).toMatchObject({
       error: 'conflict',
-      message: 'Stop active Firefox sessions before changing stream quality',
+      message: 'Stop active Brave sessions before changing browser playback settings',
     });
 
     await app.close();
@@ -452,44 +456,6 @@ describe('MediaDeck API', () => {
       error: 'validation_error',
       statusCode: 400,
     });
-  });
-
-  it('exposes an isolated add-on inventory and safely rejects malformed XPIs', async () => {
-    const app = await buildApplication({
-      config: createConfig(),
-      logger: false,
-    });
-    const created = await app.inject({
-      method: 'POST',
-      payload: { name: 'Add-on profile' },
-      url: '/api/v1/profiles',
-    });
-    const createdProfile = profileSchema.parse(created.json());
-
-    const inventory = await app.inject({
-      method: 'GET',
-      url: `/api/v1/profiles/${createdProfile.id}/addons`,
-    });
-    expect(profileAddonListResponseSchema.parse(inventory.json())).toEqual({
-      addons: [],
-    });
-
-    const invalidPackage = await app.inject({
-      headers: {
-        'content-type': 'application/x-xpinstall',
-        'x-mediadeck-filename': 'invalid.xpi',
-      },
-      method: 'POST',
-      payload: Buffer.from('not an xpi'),
-      url: `/api/v1/profiles/${createdProfile.id}/addons`,
-    });
-    expect(invalidPackage.statusCode).toBe(400);
-    expect(invalidPackage.json()).toMatchObject({
-      error: 'invalid_addon_package',
-      statusCode: 400,
-    });
-
-    await app.close();
   });
 
   it('protects privileged operations after an administrator PIN is enabled', async () => {

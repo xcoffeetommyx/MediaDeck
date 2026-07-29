@@ -43,7 +43,8 @@ docker compose -f compose.yaml -f compose.sessions.yaml up --build -d
 
 MediaDeck creates a worker only when a session is requested. Each worker:
 
-- runs Firefox 153 in the pinned LinuxServer Selkies image
+- runs Brave Origin in a MediaDeck image derived from a digest-pinned
+  LinuxServer Selkies base
 - uses Intel/AMD DRI hardware encoding when the configured render node is
   available, with automatic software fallback
 - mounts only its persistent profile or temporary Guest subdirectory
@@ -53,21 +54,15 @@ MediaDeck creates a worker only when a session is requested. Each worker:
 - is labeled and named by an opaque session UUID
 - has explicit CPU, memory, PID, and shared-memory ceilings
 
-On the first browser launch, MediaDeck checks whether the exact digest-pinned
-worker image is present and pulls it through the local Docker Engine when it is
-missing. The first launch can therefore take several minutes on a slower
-connection. Concurrent launch requests share the same pull instead of
-downloading the image more than once. A registry or network failure is reported
-in the launch error and can be retried without restarting MediaDeck.
+Compose builds the local `mediadeck-brave-origin:0.1.0` worker before starting
+the application. The base is digest-pinned, so deployments use the reviewed
+Brave Origin build instead of silently following a moving tag.
 
 The application talks to the local Docker Engine over its Unix socket. Access
 to that socket is equivalent to administrative control of the Docker host.
 Keep MediaDeck private, patch it promptly, and do not expose the API outside the
 trusted Tailscale path. A dedicated least-privilege worker manager remains a
 future hardening option.
-
-The Stage 2 `compose.browser-spike.yaml` override remains a diagnostic tool. Do
-not run it together with `compose.sessions.yaml`.
 
 ## Profile and Session APIs
 
@@ -183,19 +178,24 @@ at the Balanced preset (30 FPS / 6 Mbps). Settings provides four presets:
 
 The environment frame-rate and bitrate select the initial preset when no
 administrator settings have been saved. Later changes are made in Settings and
-apply to newly created Firefox sessions. MediaDeck requires active sessions to
+apply to newly created Brave sessions. MediaDeck requires active sessions to
 be stopped before changing the preset.
 
 For production session workers, `BROWSER_WORKER_GPU_MODE=auto` attempts the
 configured Linux Intel/AMD DRI render node and falls back to software only when
 the device is absent or inaccessible. Use `software` to force CPU encoding or
 `dri` to require the device and fail instead of falling back. NVIDIA requires a
-host-specific design. `compose.browser-gpu.yaml` remains only for the Stage 2
-diagnostic worker and must not be combined with `compose.sessions.yaml`.
+host-specific design.
 
 `MAX_BROWSER_SESSIONS` defaults to `1`.
 `BROWSER_SESSION_IDLE_TIMEOUT_SECONDS` defaults to `1800`; clients keep an
 active session alive through the heartbeat endpoint.
+
+Set `BROWSER_VAAPI_DRIVER=i965` for Intel Broadwell and Haswell graphics. Use
+`iHD` for supported newer Intel graphics, or keep `auto` for AMD and unknown
+hosts. The worker includes both Intel driver families. Settings also provides
+an **Older hardware video mode** toggle that prevents YouTube from selecting
+AV1 for newly created sessions.
 
 For concurrent profiles, size the host first and then raise
 `MAX_BROWSER_SESSIONS`. The default per-worker ceilings are:
@@ -205,9 +205,10 @@ For concurrent profiles, size the host first and then raise
 | `BROWSER_WORKER_CPUS`       | `2`                   | Maximum CPU cores per worker  |
 | `BROWSER_WORKER_MEMORY_MB`  | `2048`                | Memory and total memory+swap  |
 | `BROWSER_WORKER_PIDS_LIMIT` | `512`                 | Maximum worker process count  |
-| `BROWSER_WORKER_SHM_MB`     | `1024`                | Firefox shared-memory size    |
+| `BROWSER_WORKER_SHM_MB`     | `1024`                | Browser shared-memory size    |
 | `BROWSER_WORKER_GPU_MODE`   | `auto`                | `auto`, `software`, or `dri`  |
 | `BROWSER_DRI_DEVICE`        | `/dev/dri/renderD128` | Intel/AMD render device       |
+| `BROWSER_VAAPI_DRIVER`      | `auto`                | `auto`, `i965`, or `iHD`      |
 | `BROWSER_FRAMERATE`         | `30`                  | Initial stream frame rate     |
 | `BROWSER_VIDEO_BITRATE`     | `6`                   | Initial video ceiling in Mbps |
 
@@ -222,11 +223,6 @@ The named Docker volume `mediadeck-data` is mounted at `/data`:
 
 ```text
 /data/
-  addons/
-    inbox/
-      <profile-uuid>/
-    rejected/
-      <profile-uuid>/
   backups/
     <backup-id>/
       manifest.json
@@ -236,71 +232,25 @@ The named Docker volume `mediadeck-data` is mounted at `/data`:
     mediadeck.sqlite
   profiles/
     <profile-uuid>/
-      firefox/
-        mediadeck/
-          addons/
-          policy/
+      brave-origin/
   runtime/
     approved-update.json
     restore-request.json
     guests/
       <session-uuid>/
-        firefox/
+        brave-origin/
 ```
 
 The application creates missing directories on startup. Do not mount the same
-persistent Firefox profile into more than one future browser worker.
+persistent Brave profile into more than one future browser worker.
 
 The container runs as an unprivileged user with a read-only root filesystem.
 Only `/data` and the temporary `/tmp` filesystem are writable.
 
-## Managed Firefox Add-ons
-
-Open Settings from a persistent profile to install a Mozilla-signed `.xpi`,
-enable or disable it, remove it, or install a newer package with the same
-Firefox extension ID. Guest is temporary and has no add-on inventory.
-
-Stop the selected profile's active stream before changing add-ons. MediaDeck
-preflights ZIP structure, manifest fields, an explicit Firefox ID, release
-signature artifacts, package size, and compatibility with
-`FIREFOX_MAJOR_VERSION`. The pinned release Firefox performs final
-cryptographic signature verification at launch.
-
-Enabled packages become `force_installed`; disabled packages become `blocked`.
-The generated profile-specific policy is mounted read-only at
-`/etc/firefox/policies`, separately from the writable Firefox profile.
-Operators cannot upload arbitrary policy JSON.
-
-`PUID` must remain `1000`. The MediaDeck application runs as UID 1000 and
-shares each profile volume with its Firefox worker; a different worker UID
-would take ownership of persistent files away from the application. `PGID` may
-still match the operator's preferred host group. Startup rejects a different
-PUID instead of allowing a deployment that later loses access to its profiles.
-
-Add-on configuration defaults are:
-
-| Variable                       | Default | Purpose                                   |
-| ------------------------------ | ------- | ----------------------------------------- |
-| `FIREFOX_MAJOR_VERSION`        | `153`   | Compatibility target; match worker image  |
-| `ADDON_MAX_PACKAGE_MB`         | `25`    | Maximum accepted XPI size                 |
-| `ADDON_WATCH_ENABLED`          | `false` | Periodically scan watched profile folders |
-| `ADDON_WATCH_INTERVAL_SECONDS` | `60`    | Watch scan interval when enabled          |
-
-For optional watched imports, copy packages to:
-
-```text
-/data/addons/inbox/<profile-uuid>/*.xpi
-```
-
-Enable periodic imports with `ADDON_WATCH_ENABLED=true`, or choose **Scan
-folder** in Settings for an immediate scan. Valid packages are imported and
-removed from the inbox. Invalid, incompatible, or non-newer packages move to
-`/data/addons/rejected/<profile-uuid>/` beside an `.error.json` reason.
-Folders that do not match a current profile are ignored.
-
-The inventory API is `GET /api/v1/profiles/<profile-id>/addons`. Install,
-enable/disable, remove, and watched-scan routes are administrator-protected
-when a PIN is configured.
+`PUID` must remain `1000`. The MediaDeck application and Brave worker share
+profile-volume ownership; a different worker UID could make profile files
+unreadable by the application. Chrome-extension management is intentionally
+deferred and is not exposed by this release.
 
 ## Administrator Operations
 
@@ -322,7 +272,7 @@ retains the newest 500 lifecycle and administration events.
 ## Backups and Restore
 
 Backups require all browser sessions to be stopped. MediaDeck uses SQLite's
-online backup API and copies the persistent Firefox profile directories into
+online backup API and copies the persistent Brave profile directories into
 an atomic backup directory. Guest and other reconstructible runtime data are
 excluded. Retention is configurable from 1 to 20 backups.
 

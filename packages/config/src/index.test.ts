@@ -13,6 +13,8 @@ describe('server configuration', () => {
       browserWorker: {
         framerate: 30,
         gpuMode: 'auto',
+        image: 'mediadeck-brave-origin:0.1.0',
+        vaapiDriver: 'auto',
         videoBitrate: 6,
       },
       host: '0.0.0.0',

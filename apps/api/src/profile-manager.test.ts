@@ -35,7 +35,7 @@ describe('profile manager', () => {
     const paths = getStoragePaths(dataDirectory);
 
     await expect(
-      access(join(paths.profiles, profile.id, 'firefox')),
+      access(join(paths.profiles, profile.id, 'brave-origin')),
     ).resolves.toBeUndefined();
     expect(profiles.list()).toEqual([profile]);
 

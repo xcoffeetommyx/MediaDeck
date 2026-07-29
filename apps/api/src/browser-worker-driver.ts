@@ -7,10 +7,10 @@ export type BrowserWorkerState =
   'starting' | 'running' | 'unhealthy' | 'stopped' | 'missing';
 
 export type StartBrowserWorkerInput = {
+  disableAv1Playback?: boolean;
   framerate: number;
   kind: 'profile' | 'guest';
   launchUrl: string;
-  policyStoragePath?: string;
   sessionId: string;
   storagePath: string;
   videoBitrate: number;
@@ -197,7 +197,7 @@ export class DockerBrowserWorkerDriver implements BrowserWorkerDriver {
       framerate,
       kind,
       launchUrl,
-      policyStoragePath,
+      disableAv1Playback = false,
       sessionId,
       storagePath,
       videoBitrate,
@@ -209,6 +209,15 @@ export class DockerBrowserWorkerDriver implements BrowserWorkerDriver {
     const memoryBytes = this.config.memoryMegabytes * 1024 * 1024;
     const sharedMemoryBytes = this.config.sharedMemoryMegabytes * 1024 * 1024;
     const hardwareAcceleration = gpuMode === 'dri';
+    const braveArguments = [
+      '--kiosk',
+      '--no-first-run',
+      '--disable-session-crashed-bubble',
+      ...(disableAv1Playback
+        ? ['--load-extension=/opt/mediadeck/extensions/disable-av1']
+        : []),
+      launchUrl,
+    ].join(' ');
 
     await this.removeByName(containerName);
 
@@ -218,7 +227,7 @@ export class DockerBrowserWorkerDriver implements BrowserWorkerDriver {
           Env: [
             'HARDEN_DESKTOP=true',
             'HARDEN_OPENBOX=true',
-            `FIREFOX_CLI=--kiosk ${launchUrl}`,
+            `BRAVE_CLI=${braveArguments}`,
             'NO_DECOR=true',
             `PGID=${this.config.pgid}`,
             'PIXELFLUX_WAYLAND=true',
@@ -246,6 +255,12 @@ export class DockerBrowserWorkerDriver implements BrowserWorkerDriver {
                   `DRI_NODE=${this.config.driDevice}`,
                   `DRINODE=${this.config.driDevice}`,
                   `SELKIES_DRI_NODE=${this.config.driDevice}`,
+                  ...(!this.config.vaapiDriver || this.config.vaapiDriver === 'auto'
+                    ? []
+                    : [
+                        `LIBVA_DRIVER_NAME=${this.config.vaapiDriver}`,
+                        'LIBVA_DRIVERS_PATH=/usr/lib/x86_64-linux-gnu/dri',
+                      ]),
                 ]
               : []),
           ],
@@ -289,19 +304,6 @@ export class DockerBrowserWorkerDriver implements BrowserWorkerDriver {
                   Subpath: storagePath,
                 },
               },
-              ...(policyStoragePath
-                ? [
-                    {
-                      ReadOnly: true,
-                      Source: this.config.dataVolumeName,
-                      Target: '/etc/firefox/policies',
-                      Type: 'volume',
-                      VolumeOptions: {
-                        Subpath: policyStoragePath,
-                      },
-                    },
-                  ]
-                : []),
             ],
             NetworkMode: this.config.network,
             NanoCpus: Math.round(this.config.cpus * 1_000_000_000),

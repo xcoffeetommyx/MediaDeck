@@ -12,8 +12,6 @@ import { ZodError } from 'zod';
 
 import { ApplicationRegistry } from './application-registry.js';
 import { registerApplicationRoutes } from './application-routes.js';
-import { AddonManager } from './addon-manager.js';
-import { registerAddonRoutes } from './addon-routes.js';
 import { AdministratorAccess } from './administrator-access.js';
 import { applyScheduledRestore, BackupManager } from './backup-manager.js';
 import {
@@ -107,15 +105,6 @@ export async function buildApplication({
   );
   const applications = new ApplicationRegistry(config.browserWorker.startUrl);
   const operationCoordinator = new OperationCoordinator();
-  const addonManager = new AddonManager({
-    config: config.addons,
-    onError: (error) => {
-      app.log.error(error, 'Firefox add-on watch scan failed');
-    },
-    operations: operationCoordinator,
-    paths,
-    store,
-  });
   const profileManager = new ProfileManager(
     store,
     paths,
@@ -133,12 +122,12 @@ export async function buildApplication({
       idleTimeoutSeconds: config.browserWorker.idleTimeoutSeconds,
       maxSessions: config.browserWorker.maxSessions,
       getStreamQuality: () => streamQualityPresets[settings.get().streamQualityPreset],
+      getDisableAv1Playback: () => settings.get().disableAv1Playback,
       onMonitorError: (error) => {
         app.log.error(error, 'Browser session monitor failed');
       },
       operations: operationCoordinator,
       paths,
-      prepareProfileAddons: (profileId) => addonManager.prepareProfile(profileId),
       store,
       workerDriver,
       workerConfig: config.browserWorker,
@@ -146,7 +135,6 @@ export async function buildApplication({
   let updates: UpdateManager | undefined;
 
   app.addHook('onClose', async () => {
-    addonManager.close();
     updates?.close();
     await sessionManager.shutdown();
     if (!providedStore) {
@@ -155,7 +143,6 @@ export async function buildApplication({
   });
 
   try {
-    await addonManager.initialize();
     await sessionManager.initialize();
 
     if (restoredBackupId) {
@@ -278,19 +265,7 @@ export async function buildApplication({
     );
     app.get('/api/v1/capacity', () => sessionManager.capacity());
 
-    app.addContentTypeParser(
-      ['application/x-xpinstall', 'application/octet-stream'],
-      { parseAs: 'buffer' },
-      (_request, body, done) => done(null, body),
-    );
-
     registerProfileRoutes(app, profileManager, administrator);
-    registerAddonRoutes(
-      app,
-      addonManager,
-      administrator,
-      config.addons.maxPackageBytes,
-    );
     registerSessionRoutes(
       app,
       sessionManager,

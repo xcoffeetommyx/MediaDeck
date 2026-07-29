@@ -3,27 +3,16 @@ import type {
   AdministratorStatus,
   BackupListResponse,
   BackupSummary,
-  AddonWatchScanResponse,
   BrowserResourceReport,
   BrowserWorkerHealthResponse,
   OperationalDiagnostics,
   OperationEventListResponse,
-  Profile,
-  ProfileAddon,
-  ProfileAddonListResponse,
   RestoreBackupResponse,
   StreamQualityPreset,
   UnlockAdministratorResponse,
   UpdateStatus,
 } from '@mediadeck/contracts';
-import {
-  type ChangeEvent,
-  type ReactNode,
-  useCallback,
-  useEffect,
-  useRef,
-  useState,
-} from 'react';
+import { type ReactNode, useCallback, useEffect, useState } from 'react';
 
 import {
   ApiError,
@@ -70,7 +59,6 @@ const streamQualityOptions: {
 type SettingsViewProperties = {
   controllerConnected: boolean;
   onBack: () => void;
-  profile: Profile | null;
   workerHealth: BrowserWorkerHealthResponse | null;
 };
 
@@ -104,7 +92,6 @@ function authorized(status: AdministratorStatus | null): boolean {
 export function SettingsView({
   controllerConnected,
   onBack,
-  profile,
   workerHealth,
 }: SettingsViewProperties) {
   const [administrator, setAdministrator] = useState<AdministratorStatus | null>(null);
@@ -113,33 +100,25 @@ export function SettingsView({
   const [backups, setBackups] = useState<BackupSummary[]>([]);
   const [events, setEvents] = useState<OperationEventListResponse['events']>([]);
   const [resources, setResources] = useState<BrowserResourceReport | null>(null);
-  const [addons, setAddons] = useState<ProfileAddon[]>([]);
   const [newPin, setNewPin] = useState('');
   const [busy, setBusy] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loaded, setLoaded] = useState(false);
   const [confirmRequest, setConfirmRequest] = useState<ConfirmRequest | null>(null);
-  const addonFileInput = useRef<HTMLInputElement>(null);
 
   const load = useCallback(async () => {
-    const [nextAdministrator, nextSettings, nextDiagnostics, nextBackups, nextAddons] =
+    const [nextAdministrator, nextSettings, nextDiagnostics, nextBackups] =
       await Promise.all([
         requestJson<AdministratorStatus>('/api/v1/admin/status'),
         requestJson<AdministratorSettings>('/api/v1/settings'),
         requestJson<OperationalDiagnostics>('/api/v1/operations/diagnostics'),
         requestJson<BackupListResponse>('/api/v1/backups'),
-        profile
-          ? requestJson<ProfileAddonListResponse>(
-              `/api/v1/profiles/${profile.id}/addons`,
-            )
-          : Promise.resolve({ addons: [] }),
       ]);
     setAdministrator(nextAdministrator);
     setSettings(nextSettings);
     setDiagnostics(nextDiagnostics);
     setBackups(nextBackups.backups);
-    setAddons(nextAddons.addons);
     if (nextAdministrator.authenticated) {
       const [log, resourceReport] = await Promise.all([
         requestJson<OperationEventListResponse>('/api/v1/operations/logs?limit=8'),
@@ -152,7 +131,7 @@ export function SettingsView({
       setResources(null);
     }
     setLoaded(true);
-  }, [profile]);
+  }, []);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -212,29 +191,6 @@ export function SettingsView({
     [],
   );
 
-  const installAddon = useCallback(
-    async (event: ChangeEvent<HTMLInputElement>) => {
-      const file = event.target.files?.[0];
-      event.target.value = '';
-      if (!file || !profile) return;
-      await run('addon-install', async () => {
-        const addon = await requestJson<ProfileAddon>(
-          `/api/v1/profiles/${profile.id}/addons`,
-          {
-            body: await file.arrayBuffer(),
-            headers: {
-              'Content-Type': 'application/x-xpinstall',
-              'X-MediaDeck-Filename': file.name,
-            },
-            method: 'POST',
-          },
-        );
-        return `${addon.name} ${addon.version} is ready for ${profile.name}.`;
-      });
-    },
-    [profile, run],
-  );
-
   return (
     <DetailView
       description="Administration, backups, diagnostics, and recovery in one place."
@@ -270,7 +226,7 @@ export function SettingsView({
               ? `Transport: ${workerHealth.transport.provider} over ${workerHealth.transport.mode}.`
               : 'No browser worker is configured for this host.'
           }
-          label="Firefox worker"
+          label="Brave Origin worker"
           tone={
             workerHealth?.status === 'online'
               ? 'good'
@@ -352,148 +308,6 @@ export function SettingsView({
 
       <div className="operations-grid">
         <OperationCard
-          action={
-            <div className="row-actions">
-              {/* The picker is opened by the button beside it, so it stays out
-                  of the tab and directional-focus order. */}
-              <input
-                accept=".xpi,application/x-xpinstall"
-                aria-hidden="true"
-                aria-label="Choose Firefox add-on package"
-                className="visually-hidden"
-                onChange={(event) => void installAddon(event)}
-                ref={addonFileInput}
-                tabIndex={-1}
-                type="file"
-              />
-              <button
-                aria-busy={busy === 'addon-install'}
-                className="primary-button focusable"
-                data-focusable="true"
-                disabled={busy !== null || controlsLocked || !profile}
-                onClick={() => addonFileInput.current?.click()}
-              >
-                {busy === 'addon-install' ? 'Checking package…' : 'Install XPI'}
-              </button>
-              <button
-                aria-busy={busy === 'addon-scan'}
-                className="secondary-button focusable"
-                data-focusable="true"
-                disabled={busy !== null || controlsLocked}
-                onClick={() =>
-                  void run('addon-scan', async () => {
-                    const result = await requestJson<AddonWatchScanResponse>(
-                      '/api/v1/addons/watch/scan',
-                      {
-                        headers: { 'Content-Type': 'application/json' },
-                        method: 'POST',
-                        body: '{}',
-                      },
-                    );
-                    return `Watched folder: ${result.imported} imported, ${result.rejected} rejected, ${result.skipped} skipped.`;
-                  })
-                }
-              >
-                Scan folder
-              </button>
-            </div>
-          }
-          eyebrow="Firefox"
-          title={profile ? `${profile.name} add-ons` : 'Guest add-ons'}
-          wide
-        >
-          {!profile ? (
-            <p className="operation-empty">
-              <strong>Guest sessions do not keep add-ons.</strong>
-              Guest storage is erased on return, so managed extensions belong to a
-              persistent profile.
-            </p>
-          ) : !loaded ? (
-            <SkeletonRows rows={2} />
-          ) : addons.length === 0 ? (
-            <p className="operation-empty">
-              <strong>No managed add-ons yet.</strong>
-              Install a Mozilla-signed XPI that declares an explicit Firefox extension
-              ID.
-            </p>
-          ) : (
-            <div className="backup-list">
-              {addons.map((addon) => (
-                <div className="backup-row addon-row" key={addon.id}>
-                  <div>
-                    <strong>
-                      {addon.name} <span>v{addon.version}</span>
-                    </strong>
-                    <span>
-                      {addon.enabled ? 'Enabled' : 'Disabled'} ·{' '}
-                      {addon.permissions.length} declared permissions · {addon.source}
-                    </span>
-                    <code>{addon.id}</code>
-                  </div>
-                  <div className="row-actions">
-                    <button
-                      aria-pressed={addon.enabled}
-                      className="secondary-button focusable"
-                      data-focusable="true"
-                      disabled={busy !== null || controlsLocked}
-                      onClick={() =>
-                        void run(`addon-${addon.id}`, async () => {
-                          await requestJson(
-                            `/api/v1/profiles/${profile.id}/addons/${encodeURIComponent(addon.id)}`,
-                            {
-                              body: JSON.stringify({
-                                enabled: !addon.enabled,
-                              }),
-                              headers: { 'Content-Type': 'application/json' },
-                              method: 'PATCH',
-                            },
-                          );
-                          return `${addon.name} ${addon.enabled ? 'disabled' : 'enabled'}.`;
-                        })
-                      }
-                    >
-                      {addon.enabled ? 'Disable' : 'Enable'}
-                    </button>
-                    <button
-                      aria-label={`Remove ${addon.name}`}
-                      className="secondary-button danger-button focusable"
-                      data-focusable="true"
-                      disabled={busy !== null || controlsLocked}
-                      onClick={() =>
-                        confirmThen(
-                          {
-                            body: `${addon.name} ${addon.version} will be removed from ${profile.name} only. Other profiles keep their own copy. The change applies the next time Firefox launches.`,
-                            confirmLabel: 'Remove add-on',
-                            danger: true,
-                            eyebrow: 'Firefox add-ons',
-                            title: `Remove ${addon.name}?`,
-                          },
-                          () =>
-                            void run(`addon-remove-${addon.id}`, async () => {
-                              await requestJson(
-                                `/api/v1/profiles/${profile.id}/addons/${encodeURIComponent(addon.id)}`,
-                                { method: 'DELETE' },
-                              );
-                              return `${addon.name} removed.`;
-                            }),
-                        )
-                      }
-                    >
-                      Remove
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-          <p className="operation-help">
-            Add-on changes apply on the next Firefox launch. Install a newer package
-            with the same ID to update it. Stop this profile’s active stream before
-            making changes.
-          </p>
-        </OperationCard>
-
-        <OperationCard
           badge={
             resources
               ? `${resources.limitsPerWorker.cpus} CPU · ${formatBytes(resources.limitsPerWorker.memoryBytes)} each`
@@ -513,7 +327,7 @@ export function SettingsView({
           ) : resources.sessions.length === 0 ? (
             <p className="operation-empty">
               <strong>No streams are active.</strong>
-              Limits are reserved and ready for the next Firefox worker.
+              Limits are reserved and ready for the next Brave Origin worker.
             </p>
           ) : (
             resources.sessions.map((sample, index) => (
@@ -672,7 +486,7 @@ export function SettingsView({
                       headers: { 'Content-Type': 'application/json' },
                       method: 'PATCH',
                     });
-                    return `${option.label} stream quality saved. New Firefox sessions will use it.`;
+                    return `${option.label} stream quality saved. New Brave sessions will use it.`;
                   })
                 }
               >
@@ -684,8 +498,50 @@ export function SettingsView({
           </div>
           <p className="operation-help">
             {activeSessions > 0
-              ? 'Stop the active Firefox session before changing quality.'
+              ? 'Stop the active Brave session before changing quality.'
               : 'MediaDeck uses hardware video acceleration automatically when a compatible DRI device is available, and falls back to software safely.'}
+          </p>
+        </OperationCard>
+
+        <OperationCard
+          badge={settings?.disableAv1Playback ? 'On' : 'Off'}
+          eyebrow="Compatibility"
+          title="Older hardware video mode"
+        >
+          <SettingRow
+            action={
+              <button
+                aria-pressed={settings?.disableAv1Playback ?? false}
+                className="secondary-button focusable"
+                data-focusable="true"
+                disabled={
+                  busy !== null || !settings || controlsLocked || activeSessions > 0
+                }
+                onClick={() =>
+                  settings &&
+                  void run('av1-compatibility', async () => {
+                    const enabled = !settings.disableAv1Playback;
+                    await requestJson('/api/v1/settings', {
+                      body: JSON.stringify({ disableAv1Playback: enabled }),
+                      headers: { 'Content-Type': 'application/json' },
+                      method: 'PATCH',
+                    });
+                    return enabled
+                      ? 'AV1 prevention enabled for new Brave sessions.'
+                      : 'AV1 prevention disabled for new Brave sessions.';
+                  })
+                }
+              >
+                {settings?.disableAv1Playback ? 'Disable' : 'Enable'}
+              </button>
+            }
+            detail="Prevents YouTube from selecting CPU-heavy AV1 video on older processors such as Intel Broadwell."
+            title="Prevent AV1 playback"
+          />
+          <p className="operation-help">
+            {activeSessions > 0
+              ? 'Stop the active Brave session before changing compatibility mode.'
+              : 'Leave this off on newer hardware unless AV1 playback is dropping frames.'}
           </p>
         </OperationCard>
 

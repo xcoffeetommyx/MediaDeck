@@ -27,8 +27,8 @@ Home contains three primary tiles:
 - Settings
 - Updates
 
-The YouTube tile starts or resumes the selected profile's Firefox session.
-Settings reports controller, Firefox-worker, database, storage, and session
+The YouTube tile starts or resumes the selected profile's Brave session.
+Settings reports controller, Brave-worker, database, storage, and session
 health. It also provides optional administrator PIN controls, maintenance
 preferences, backup and restore actions, the operations log, and a manual
 recovery check. Updates shows the installed version, manifest state, available
@@ -36,7 +36,7 @@ digest-pinned release, explicit approval action, and its pre-update backup.
 
 ## YouTube Viewer
 
-The viewer reserves a compact MediaDeck control bar above the remote Firefox
+The viewer reserves a compact MediaDeck control bar above the remote Brave
 surface so it never blocks YouTube search or playback controls. It shows:
 
 - profile and live video/audio state

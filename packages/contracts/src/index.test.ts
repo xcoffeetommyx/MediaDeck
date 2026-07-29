@@ -168,6 +168,12 @@ describe('API contracts', () => {
         backupRetentionCount: 5,
       }).streamQualityPreset,
     ).toBe('balanced');
+    expect(
+      administratorSettingsSchema.parse({
+        automaticUpdateChecks: true,
+        backupRetentionCount: 5,
+      }).disableAv1Playback,
+    ).toBe(false);
     expect(() =>
       administratorSettingsSchema.parse({
         automaticUpdateChecks: true,

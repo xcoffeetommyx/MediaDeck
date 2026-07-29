@@ -343,7 +343,6 @@ export function App() {
 
         {view === 'settings' && activeProfile ? (
           <Settings
-            activeProfile={activeProfile}
             controllerConnected={controllerConnected}
             workerHealth={workerHealth}
             onBack={goBack}
@@ -489,7 +488,7 @@ function YouTubeView({
         })
         .catch((error: unknown) => {
           setConnectionError(
-            getErrorMessage(error, 'The Firefox session stopped responding.'),
+            getErrorMessage(error, 'The Brave session stopped responding.'),
           );
         });
     }, delay);
@@ -509,7 +508,7 @@ function YouTubeView({
     } catch (error) {
       setExitRequested(false);
       setExitError(
-        getErrorMessage(error, 'Firefox could not be stopped. Please try again.'),
+        getErrorMessage(error, 'Brave could not be stopped. Please try again.'),
       );
     }
   }, [accessToken, onExit, session]);
@@ -565,7 +564,7 @@ function YouTubeView({
     const isSelkiesClient = Boolean(frameDocument?.querySelector('#app'));
     setFrameLoaded(isSelkiesClient);
     if (!isSelkiesClient) {
-      setConnectionError('The Firefox viewer did not load correctly.');
+      setConnectionError('The Brave viewer did not load correctly.');
     }
 
     const frameWindow = iframeRef.current?.contentWindow;
@@ -608,7 +607,7 @@ function YouTubeView({
       reloadStream();
     } catch (error) {
       setConnectionError(
-        getErrorMessage(error, 'The Firefox session could not be recovered.'),
+        getErrorMessage(error, 'The Brave session could not be recovered.'),
       );
     } finally {
       setRecovering(false);
@@ -643,7 +642,7 @@ function YouTubeView({
         : 'Live'
       : session?.status === 'running'
         ? 'Connecting'
-        : 'Starting Firefox';
+        : 'Starting Brave';
 
   useAutoFocus(
     `youtube:${session?.status ?? 'launching'}:${frameLoaded}:${entered}:${Boolean(
@@ -666,14 +665,14 @@ function YouTubeView({
           onLoad={handleFrameLoad}
           ref={iframeRef}
           src={`${session.streamUrl}?viewer=${frameKey}`}
-          title={`YouTube Firefox stream for ${profileName}`}
+          title={`YouTube Brave stream for ${profileName}`}
         />
       ) : null}
 
       <div className="stream-toolbar">
         <button
           aria-busy={exitRequested}
-          aria-label="Stop Firefox and return to MediaDeck"
+          aria-label="Stop Brave and return to MediaDeck"
           className="stream-control stream-return focusable"
           data-autofocus="true"
           data-focusable="true"
@@ -728,19 +727,19 @@ function YouTubeView({
               {launchError
                 ? 'YouTube could not start.'
                 : exitError
-                  ? 'Firefox is still running.'
+                  ? 'Brave is still running.'
                   : connectionError
                     ? 'The stream lost its connection.'
                     : frameLoaded
                       ? 'YouTube is ready.'
-                      : 'Starting Firefox…'}
+                      : 'Starting Brave…'}
             </h1>
             <p>
               {exitError ??
                 launchError ??
                 connectionError ??
                 (isStarting
-                  ? 'Preparing your isolated Firefox profile and secure stream.'
+                  ? 'Preparing your isolated Brave profile and secure stream.'
                   : 'Connecting video, audio, and input through MediaDeck.')}
             </p>
 
@@ -774,7 +773,7 @@ function YouTubeView({
                   disabled={recovering}
                   onClick={() => void recover()}
                 >
-                  {recovering ? 'Recovering…' : 'Recover Firefox'}
+                  {recovering ? 'Recovering…' : 'Recover Brave'}
                 </button>
               ) : null}
               {!launchError && !connectionError && frameLoaded ? (
@@ -840,7 +839,7 @@ function ProfilePicker({
       <div className="section-heading centered">
         <p className="eyebrow">Choose your space</p>
         <h1 id="profile-heading">Who’s watching?</h1>
-        <p>Each profile keeps its own Firefox logins, history, and preferences.</p>
+        <p>Each profile keeps its own Brave logins, history, and preferences.</p>
       </div>
 
       {error ? (
@@ -943,7 +942,7 @@ function Home({
         <h1 id="home-heading">What do you want to watch?</h1>
         {isGuest ? (
           <p>
-            Guest is a temporary session. Its Firefox history, logins, and downloads are
+            Guest is a temporary session. Its Brave history, logins, and downloads are
             deleted the moment you return to MediaDeck.
           </p>
         ) : null}
@@ -978,7 +977,7 @@ function Home({
           >
             {capacity?.atCapacity
               ? `The host is running ${capacity.activeSessions} of ${capacity.maxSessions} streams. Try again when one closes.`
-              : 'Your subscriptions, playlists, and recommendations in Firefox.'}
+              : 'Your subscriptions, playlists, and recommendations in Brave.'}
           </span>
           <span className="app-card-action">
             {atCapacity ? 'Waiting for a free stream' : 'Start watching'} <b>→</b>
@@ -1022,12 +1021,10 @@ function Home({
 }
 
 function Settings({
-  activeProfile,
   controllerConnected,
   onBack,
   workerHealth,
 }: {
-  activeProfile: ActiveProfile;
   controllerConnected: boolean;
   onBack: () => void;
   workerHealth: BrowserWorkerHealthResponse | null;
@@ -1036,7 +1033,6 @@ function Settings({
     <SettingsView
       controllerConnected={controllerConnected}
       onBack={onBack}
-      profile={activeProfile.kind === 'profile' ? activeProfile.profile : null}
       workerHealth={workerHealth}
     />
   );
@@ -1087,7 +1083,7 @@ function CreateProfileDialog({
       <p className="eyebrow">New space</p>
       <h2>Create a profile</h2>
       <p className="modal-copy">
-        This profile gets its own private Firefox data and preferences.
+        This profile gets its own private Brave data and preferences.
       </p>
 
       <form onSubmit={(event) => void handleSubmit(event)}>

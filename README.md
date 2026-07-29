@@ -1,12 +1,12 @@
 # MediaDeck – Project Handoff
 
 MediaDeck is a self-hosted, controller-first media browser designed for a
-headless Linux Docker host. Firefox is the browser engine, not the product.
+headless Linux Docker host. Brave Origin is the browser engine, not the product.
 
 ## Vision
 
 MediaDeck is a self-hosted Docker application that provides a controller-first,
-touch-friendly browser appliance for YouTube. Firefox is the browser engine,
+touch-friendly browser appliance for YouTube. Brave Origin is the browser engine,
 not the product.
 
 Initial deployment target:
@@ -33,14 +33,14 @@ Stages 1 through 8 establish:
 - Local and Docker development
 - Hardened production container
 - Automated quality checks and CI
-- A pinned Firefox/Selkies browser worker
+- A pinned Brave Origin/Selkies browser worker
 - YouTube video, audio, input, and reconnect validation
 - A transport-neutral browser-worker health API
 - Persistent profile CRUD backed by SQLite
 - Ephemeral Guest sessions with automatic cleanup
 - Profile locks, idle shutdown, health monitoring, and crash recovery
 - Docker workers keyed by opaque session IDs
-- Automatic digest-pinned Firefox worker pulls on clean hosts
+- A Compose-built, digest-pinned Brave Origin worker image
 - Automatic Intel/AMD DRI hardware encoding with safe software fallback
 - Four administrator-selectable 30/60 FPS stream-quality presets
 - A profile picker backed by the persistent profile API
@@ -51,7 +51,7 @@ Stages 1 through 8 establish:
 - Automated interaction and accessibility checks
 - A first-class YouTube application definition
 - Opaque per-session HTTP and WebSocket stream routing
-- A kiosk-mode Firefox viewer with video, audio, reload, and fullscreen controls
+- A kiosk-mode Brave Origin viewer with video, audio, reload, and fullscreen controls
 - Heartbeat, resume, recovery, and explicit return behavior
 - Persistent profile sessions and temporary Guest cleanup through the visible UI
 - Optional administrator PIN protection with expiring unlock sessions
@@ -63,11 +63,9 @@ Stages 1 through 8 establish:
 - Per-session API, HTTP stream, and WebSocket authorization
 - Per-worker CPU, memory, PID, GPU-mode, and bandwidth observability
 - Multi-session failure isolation and independent crash recovery
-- Per-profile managed Firefox add-on inventories
-- Signed XPI installation, updates, enable/disable, and removal
-- Compatibility and package safety checks
-- Read-only per-profile Firefox enterprise policies
-- Optional watched add-on imports with rejected-package quarantine
+- Separate persistent Brave Origin profiles and temporary Guest storage
+- Optional AV1 prevention for older hardware
+- Broadwell-compatible i965 plus newer Intel iHD VA-API drivers
 
 ## Quick Start
 
@@ -84,13 +82,7 @@ Run all quality gates with:
 pnpm validate
 ```
 
-Run the Stage 2 browser worker with:
-
-```shell
-docker compose -f compose.yaml -f compose.browser-spike.yaml up --build -d
-```
-
-Run the Stage 3 profile-aware worker manager with:
+Run the production profile-aware worker manager with:
 
 ```shell
 docker compose -f compose.yaml -f compose.sessions.yaml up --build -d
@@ -105,12 +97,13 @@ docker compose -f compose.yaml -f compose.sessions.yaml up --build -d
 - [Roadmap](docs/roadmap.md)
 - [Development guide](docs/development.md)
 - [Deployment guide](docs/deployment.md)
+- [Brave Origin migration](docs/brave-origin-migration.md)
 - [Stage 2 browser transport report](docs/stage-2-browser-transport.md)
 - [Stage 3 profiles and sessions report](docs/stage-3-profiles-sessions.md)
 - [Stage 4 controller shell report](docs/stage-4-controller-shell.md)
 - [Stage 5 YouTube application report](docs/stage-5-youtube-application.md)
 - [Stage 6 operations report](docs/stage-6-operations.md)
 - [Stage 7 concurrent sessions report](docs/stage-7-concurrent-sessions.md)
-- [Stage 8 Firefox add-on management report](docs/stage-8-firefox-addons.md)
+- [Archived Stage 8 Firefox add-on report](docs/stage-8-firefox-addons.md)
 - [Final functional hardening report](docs/final-hardening-pass.md)
 - [Claude Opus 5 visual-polish handoff](docs/claude-opus-5-polish-handoff.md)

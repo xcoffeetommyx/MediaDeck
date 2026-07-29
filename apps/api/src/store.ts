@@ -7,7 +7,6 @@ import type {
   MediaApplicationId,
   OperationEvent,
   Profile,
-  ProfileAddon,
 } from '@mediadeck/contracts';
 
 import { CapacityError, ConflictError, NotFoundError } from './domain-errors.js';
@@ -46,22 +45,6 @@ type OperationEventRow = {
   message: string;
 };
 
-type AddonRow = {
-  addon_id: string;
-  enabled: number;
-  installed_at: string;
-  max_firefox_version: string | null;
-  min_firefox_version: string | null;
-  name: string;
-  package_filename: string;
-  permissions_json: string;
-  profile_id: string;
-  sha256: string;
-  source: ProfileAddon['source'];
-  updated_at: string;
-  version: string;
-};
-
 export type StoredAdministratorSecurity = {
   pinHash: string;
   pinSalt: string;
@@ -84,10 +67,6 @@ export type NewStoredBrowserSession = {
   profileId: string | null;
   storagePath: string;
   updatedAt: string;
-};
-
-export type StoredProfileAddon = ProfileAddon & {
-  packageFilename: string;
 };
 
 function mapProfile(row: ProfileRow): Profile {
@@ -126,27 +105,6 @@ function mapOperationEvent(row: OperationEventRow): OperationEvent {
     id: row.id,
     level: row.level,
     message: row.message,
-  };
-}
-
-function mapAddon(row: AddonRow): StoredProfileAddon {
-  const permissions: unknown = JSON.parse(row.permissions_json);
-  return {
-    enabled: row.enabled === 1,
-    id: row.addon_id,
-    installedAt: row.installed_at,
-    maxFirefoxVersion: row.max_firefox_version,
-    minFirefoxVersion: row.min_firefox_version,
-    name: row.name,
-    packageFilename: row.package_filename,
-    permissions: Array.isArray(permissions)
-      ? permissions.filter((value): value is string => typeof value === 'string')
-      : [],
-    profileId: row.profile_id,
-    sha256: row.sha256,
-    source: row.source,
-    updatedAt: row.updated_at,
-    version: row.version,
   };
 }
 
@@ -521,108 +479,6 @@ export class MediaDeckStore {
         )
         .run(deletedAt, deletedAt, id);
     })();
-  }
-
-  listProfileAddons(profileId: string): StoredProfileAddon[] {
-    this.requireProfile(profileId);
-    const rows = this.#database
-      .prepare(
-        `
-          SELECT *
-          FROM profile_addons
-          WHERE profile_id = ?
-          ORDER BY lower(name), addon_id
-        `,
-      )
-      .all(profileId) as AddonRow[];
-    return rows.map(mapAddon);
-  }
-
-  getProfileAddon(profileId: string, addonId: string): StoredProfileAddon | undefined {
-    const row = this.#database
-      .prepare(
-        `
-          SELECT *
-          FROM profile_addons
-          WHERE profile_id = ? AND addon_id = ?
-        `,
-      )
-      .get(profileId, addonId) as AddonRow | undefined;
-    return row ? mapAddon(row) : undefined;
-  }
-
-  upsertProfileAddon(addon: StoredProfileAddon): StoredProfileAddon {
-    this.requireProfile(addon.profileId);
-    this.#database
-      .prepare(
-        `
-          INSERT INTO profile_addons (
-            profile_id, addon_id, name, version, enabled, package_filename,
-            sha256, source, permissions_json, min_firefox_version,
-            max_firefox_version, installed_at, updated_at
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-          ON CONFLICT(profile_id, addon_id) DO UPDATE SET
-            name = excluded.name,
-            version = excluded.version,
-            enabled = excluded.enabled,
-            package_filename = excluded.package_filename,
-            sha256 = excluded.sha256,
-            source = excluded.source,
-            permissions_json = excluded.permissions_json,
-            min_firefox_version = excluded.min_firefox_version,
-            max_firefox_version = excluded.max_firefox_version,
-            updated_at = excluded.updated_at
-        `,
-      )
-      .run(
-        addon.profileId,
-        addon.id,
-        addon.name,
-        addon.version,
-        addon.enabled ? 1 : 0,
-        addon.packageFilename,
-        addon.sha256,
-        addon.source,
-        JSON.stringify(addon.permissions),
-        addon.minFirefoxVersion,
-        addon.maxFirefoxVersion,
-        addon.installedAt,
-        addon.updatedAt,
-      );
-    return this.getProfileAddon(addon.profileId, addon.id)!;
-  }
-
-  setProfileAddonEnabled(
-    profileId: string,
-    addonId: string,
-    enabled: boolean,
-    updatedAt: string,
-  ): StoredProfileAddon {
-    const current = this.getProfileAddon(profileId, addonId);
-    if (!current) {
-      throw new NotFoundError(`Add-on ${addonId} was not found for this profile`);
-    }
-    this.#database
-      .prepare(
-        `
-          UPDATE profile_addons
-          SET enabled = ?, updated_at = ?
-          WHERE profile_id = ? AND addon_id = ?
-        `,
-      )
-      .run(enabled ? 1 : 0, updatedAt, profileId, addonId);
-    return this.getProfileAddon(profileId, addonId)!;
-  }
-
-  deleteProfileAddon(profileId: string, addonId: string): StoredProfileAddon {
-    const current = this.getProfileAddon(profileId, addonId);
-    if (!current) {
-      throw new NotFoundError(`Add-on ${addonId} was not found for this profile`);
-    }
-    this.#database
-      .prepare('DELETE FROM profile_addons WHERE profile_id = ? AND addon_id = ?')
-      .run(profileId, addonId);
-    return current;
   }
 
   createSession(

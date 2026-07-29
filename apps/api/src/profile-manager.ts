@@ -34,7 +34,7 @@ export class ProfileManager {
       };
       const profileRoot = this.profileRoot(id);
 
-      await mkdir(resolve(profileRoot, 'firefox'), { recursive: true });
+      await mkdir(resolve(profileRoot, 'brave-origin'), { recursive: true });
       try {
         const created = this.store.createProfile(profile);
         this.recordEventSafely(

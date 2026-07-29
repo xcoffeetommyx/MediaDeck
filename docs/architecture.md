@@ -9,7 +9,7 @@ MediaDeck
 ├── Settings
 ├── Update Manager
 ├── Controller Manager
-└── Firefox Engine
+└── Brave Origin Engine
     └── YouTube
 ```
 
@@ -28,7 +28,7 @@ MediaDeck Web/API
 Session Manager
        |
 Browser Worker(s)
-  - Firefox
+  - Brave Origin
   - Selkies
   - WebSocket transport by default
   - Isolated profile
@@ -45,8 +45,8 @@ uses the local Docker Engine API. Each worker mounts only one existing
 subdirectory of `mediadeck-data` at `/config`:
 
 ```text
-Persistent: profiles/<profile-uuid>/firefox
-Guest:      runtime/guests/<session-uuid>/firefox
+Persistent: profiles/<profile-uuid>/brave-origin
+Guest:      runtime/guests/<session-uuid>/brave-origin
 ```
 
 SQLite stores profile metadata, session history, worker identity, health state,

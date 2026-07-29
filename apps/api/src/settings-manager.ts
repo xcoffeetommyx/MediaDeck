@@ -43,6 +43,7 @@ export class SettingsManager {
     const defaults: AdministratorSettings = {
       automaticUpdateChecks: true,
       backupRetentionCount: 5,
+      disableAv1Playback: false,
       streamQualityPreset: this.defaultStreamQualityPreset,
     };
     if (!stored) return defaults;
@@ -58,12 +59,14 @@ export class SettingsManager {
   update(input: UpdateAdministratorSettingsRequest): AdministratorSettings {
     const current = this.get();
     if (
-      input.streamQualityPreset &&
-      input.streamQualityPreset !== current.streamQualityPreset &&
+      ((input.streamQualityPreset &&
+        input.streamQualityPreset !== current.streamQualityPreset) ||
+        (input.disableAv1Playback !== undefined &&
+          input.disableAv1Playback !== current.disableAv1Playback)) &&
       this.store.listActiveSessions().length > 0
     ) {
       throw new ConflictError(
-        'Stop active Firefox sessions before changing stream quality',
+        'Stop active Brave sessions before changing browser playback settings',
       );
     }
 

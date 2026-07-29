@@ -10,9 +10,6 @@ export async function ensureStorageLayout(
   await Promise.all(
     [
       paths.root,
-      paths.addons,
-      paths.addonInbox,
-      paths.addonRejected,
       paths.database,
       paths.profiles,
       paths.backups,

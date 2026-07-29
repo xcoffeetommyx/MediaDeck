@@ -13,7 +13,7 @@ export class ApplicationRegistry {
     const youtube: MediaApplicationDefinition = {
       available: true,
       description:
-        'Subscriptions, playlists, recommendations, and playback in isolated Firefox.',
+        'Subscriptions, playlists, recommendations, and playback in isolated Brave Origin.',
       displayName: 'YouTube',
       id: 'youtube',
       launchUrl: youtubeLaunchUrl,

@@ -1,7 +1,17 @@
 name: mediadeck
 
 services:
+  brave-origin-image:
+    build:
+      context: ./workers/brave-origin
+    image: ${BROWSER_WORKER_IMAGE:-mediadeck-brave-origin:0.1.0}
+    entrypoint: ['/bin/true']
+    restart: 'no'
+
   app:
+    depends_on:
+      brave-origin-image:
+        condition: service_completed_successfully
     environment:
       BROWSER_DATA_VOLUME: ${MEDIADECK_DATA_VOLUME:-mediadeck-data}
       BROWSER_FRAMERATE: ${BROWSER_FRAMERATE:-30}
@@ -15,10 +25,12 @@ services:
       BROWSER_WORKER_CPUS: ${BROWSER_WORKER_CPUS:-2}
       BROWSER_WORKER_DRIVER: docker
       BROWSER_WORKER_GPU_MODE: ${BROWSER_WORKER_GPU_MODE:-auto}
+      BROWSER_WORKER_IMAGE: ${BROWSER_WORKER_IMAGE:-mediadeck-brave-origin:0.1.0}
       BROWSER_WORKER_MEMORY_MB: ${BROWSER_WORKER_MEMORY_MB:-2048}
       BROWSER_WORKER_NETWORK: ${BROWSER_WORKER_NETWORK:-mediadeck_default}
       BROWSER_WORKER_PIDS_LIMIT: ${BROWSER_WORKER_PIDS_LIMIT:-512}
       BROWSER_WORKER_SHM_MB: ${BROWSER_WORKER_SHM_MB:-1024}
+      BROWSER_VAAPI_DRIVER: ${BROWSER_VAAPI_DRIVER:-auto}
       DOCKER_SOCKET_PATH: /var/run/docker.sock
       MAX_BROWSER_SESSIONS: ${MAX_BROWSER_SESSIONS:-1}
       TZ: ${TZ:-Etc/UTC}
