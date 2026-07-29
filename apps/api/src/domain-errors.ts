@@ -33,6 +33,18 @@ export class WorkerUnavailableError extends DomainError {
   }
 }
 
+export class InvalidAddonError extends DomainError {
+  constructor(message: string) {
+    super(message, 'invalid_addon_package', 400);
+  }
+}
+
+export class IncompatibleAddonError extends DomainError {
+  constructor(message: string) {
+    super(message, 'incompatible_addon', 422);
+  }
+}
+
 export class UnauthorizedError extends DomainError {
   constructor(message = 'Administrator authorization is required') {
     super(message, 'administrator_authorization_required', 401);

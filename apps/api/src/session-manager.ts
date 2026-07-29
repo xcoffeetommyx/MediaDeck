@@ -31,6 +31,7 @@ type SessionManagerOptions = {
   now?: () => Date;
   onMonitorError?: (error: unknown) => void;
   paths: StoragePaths;
+  prepareProfileAddons?: (profileId: string) => Promise<void>;
   store: MediaDeckStore;
   workerDriver: BrowserWorkerDriver;
   workerConfig: BrowserWorkerConfig;
@@ -81,6 +82,7 @@ export class SessionManager {
   readonly #now: () => Date;
   readonly #onMonitorError: (error: unknown) => void;
   readonly #paths: StoragePaths;
+  readonly #prepareProfileAddons: (profileId: string) => Promise<void>;
   readonly #store: MediaDeckStore;
   readonly #workerDriver: BrowserWorkerDriver;
   readonly #workerConfig: BrowserWorkerConfig;
@@ -95,6 +97,7 @@ export class SessionManager {
     now = () => new Date(),
     onMonitorError = () => undefined,
     paths,
+    prepareProfileAddons = () => Promise.resolve(),
     store,
     workerDriver,
     workerConfig,
@@ -106,6 +109,7 @@ export class SessionManager {
     this.#now = now;
     this.#onMonitorError = onMonitorError;
     this.#paths = paths;
+    this.#prepareProfileAddons = prepareProfileAddons;
     this.#store = store;
     this.#workerDriver = workerDriver;
     this.#workerConfig = workerConfig;
@@ -573,9 +577,17 @@ export class SessionManager {
   private async startWorker(
     session: StoredBrowserSession,
   ): Promise<StoredBrowserSession> {
+    if (session.kind === 'profile' && session.profileId) {
+      await this.#prepareProfileAddons(session.profileId);
+    }
     const { workerId } = await this.#workerDriver.start({
       kind: session.kind,
       launchUrl: this.#applications.require(session.applicationId).launchUrl,
+      ...(session.kind === 'profile'
+        ? {
+            policyStoragePath: `${session.storagePath}/mediadeck/policy`,
+          }
+        : {}),
       sessionId: session.id,
       storagePath: session.storagePath,
     });

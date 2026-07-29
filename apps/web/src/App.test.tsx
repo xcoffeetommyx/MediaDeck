@@ -48,6 +48,20 @@ function mockApi(
     idleTimeoutSeconds: 1800,
     maxSessions: 1,
   },
+  profileAddons: {
+    enabled: boolean;
+    id: string;
+    installedAt: string;
+    maxFirefoxVersion: string | null;
+    minFirefoxVersion: string | null;
+    name: string;
+    permissions: string[];
+    profileId: string;
+    sha256: string;
+    source: 'upload' | 'watched';
+    updatedAt: string;
+    version: string;
+  }[] = [],
 ) {
   const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
     const url = requestUrl(input);
@@ -151,6 +165,15 @@ function mockApi(
           state: 'unconfigured',
         }),
       );
+    }
+    if (
+      url.endsWith(`/api/v1/profiles/${profile.id}/addons/stage8%40example.test`) &&
+      init?.method === 'PATCH'
+    ) {
+      return Promise.resolve(jsonResponse({ ...profileAddons[0], enabled: false }));
+    }
+    if (url.endsWith(`/api/v1/profiles/${profile.id}/addons`)) {
+      return Promise.resolve(jsonResponse({ addons: profileAddons }));
     }
     if (url.endsWith('/api/v1/profiles') && init?.method === 'POST') {
       if (typeof init.body !== 'string') {
@@ -270,6 +293,51 @@ describe('MediaDeck application shell', () => {
     expect(
       screen.getByRole('button', { name: 'Run recovery check' }),
     ).toBeInTheDocument();
+  });
+
+  it('shows and disables a managed Firefox add-on for the selected profile', async () => {
+    const addon = {
+      enabled: true,
+      id: 'stage8@example.test',
+      installedAt: '2026-07-28T12:00:00.000Z',
+      maxFirefoxVersion: null,
+      minFirefoxVersion: '109.0',
+      name: 'Stage Eight',
+      permissions: ['storage'],
+      profileId: profile.id,
+      sha256: 'a'.repeat(64),
+      source: 'upload' as const,
+      updatedAt: '2026-07-28T12:00:00.000Z',
+      version: '1.0.0',
+    };
+    const fetchMock = mockApi(
+      [profile],
+      {
+        activeSessions: 0,
+        availableSlots: 1,
+        atCapacity: false,
+        idleTimeoutSeconds: 1800,
+        maxSessions: 1,
+      },
+      [addon],
+    );
+    const user = userEvent.setup();
+    render(<App />);
+
+    await user.click(await screen.findByRole('button', { name: /Tommy/ }));
+    await user.click(screen.getByRole('button', { name: /Settings/ }));
+    expect(await screen.findByText('Stage Eight')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Disable' }));
+
+    await waitFor(() =>
+      expect(fetchMock).toHaveBeenCalledWith(
+        `/api/v1/profiles/${profile.id}/addons/${encodeURIComponent(addon.id)}`,
+        expect.objectContaining({
+          body: JSON.stringify({ enabled: false }),
+          method: 'PATCH',
+        }),
+      ),
+    );
   });
 
   it('keeps Guest available when profile loading fails', async () => {

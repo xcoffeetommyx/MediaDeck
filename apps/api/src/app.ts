@@ -12,6 +12,8 @@ import { ZodError } from 'zod';
 
 import { ApplicationRegistry } from './application-registry.js';
 import { registerApplicationRoutes } from './application-routes.js';
+import { AddonManager } from './addon-manager.js';
+import { registerAddonRoutes } from './addon-routes.js';
 import { AdministratorAccess } from './administrator-access.js';
 import { applyScheduledRestore, BackupManager } from './backup-manager.js';
 import {
@@ -88,6 +90,14 @@ export async function buildApplication({
   const workerDriver =
     providedWorkerDriver ?? createBrowserWorkerDriver(config.browserWorker);
   const applications = new ApplicationRegistry(config.browserWorker.startUrl);
+  const addonManager = new AddonManager({
+    config: config.addons,
+    onError: (error) => {
+      app.log.error(error, 'Firefox add-on watch scan failed');
+    },
+    paths,
+    store,
+  });
   const profileManager = new ProfileManager(store, paths);
   const sessionManager =
     providedSessionManager ??
@@ -100,11 +110,13 @@ export async function buildApplication({
         app.log.error(error, 'Browser session monitor failed');
       },
       paths,
+      prepareProfileAddons: (profileId) => addonManager.prepareProfile(profileId),
       store,
       workerDriver,
       workerConfig: config.browserWorker,
     });
 
+  await addonManager.initialize();
   await sessionManager.initialize();
 
   if (restoredBackupId) {
@@ -186,6 +198,7 @@ export async function buildApplication({
   });
 
   app.addHook('onClose', async () => {
+    addonManager.close();
     updates.close();
     await sessionManager.shutdown();
     if (!providedStore) {
@@ -218,7 +231,14 @@ export async function buildApplication({
   );
   app.get('/api/v1/capacity', () => sessionManager.capacity());
 
+  app.addContentTypeParser(
+    ['application/x-xpinstall', 'application/octet-stream'],
+    { parseAs: 'buffer' },
+    (_request, body, done) => done(null, body),
+  );
+
   registerProfileRoutes(app, profileManager, administrator);
+  registerAddonRoutes(app, addonManager, administrator, config.addons.maxPackageBytes);
   registerSessionRoutes(app, sessionManager, administrator, config.sessionCookieSecure);
   registerApplicationRoutes(
     app,

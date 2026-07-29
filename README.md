@@ -23,7 +23,7 @@ Development philosophy:
 
 ## Current Status
 
-Stages 1 through 6 establish:
+Stages 1 through 8 establish:
 
 - React, TypeScript, Vite, and Tailwind CSS frontend
 - Fastify backend
@@ -60,6 +60,11 @@ Stages 1 through 6 establish:
 - Per-session API, HTTP stream, and WebSocket authorization
 - Per-worker CPU, memory, PID, GPU-mode, and bandwidth observability
 - Multi-session failure isolation and independent crash recovery
+- Per-profile managed Firefox add-on inventories
+- Signed XPI installation, updates, enable/disable, and removal
+- Compatibility and package safety checks
+- Read-only per-profile Firefox enterprise policies
+- Optional watched add-on imports with rejected-package quarantine
 
 ## Quick Start
 
@@ -103,3 +108,5 @@ docker compose -f compose.yaml -f compose.sessions.yaml up --build -d
 - [Stage 5 YouTube application report](docs/stage-5-youtube-application.md)
 - [Stage 6 operations report](docs/stage-6-operations.md)
 - [Stage 7 concurrent sessions report](docs/stage-7-concurrent-sessions.md)
+- [Stage 8 Firefox add-on management report](docs/stage-8-firefox-addons.md)
+- [Claude Opus 5 visual-polish handoff](docs/claude-opus-5-polish-handoff.md)

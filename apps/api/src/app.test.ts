@@ -10,6 +10,7 @@ import {
   browserWorkerHealthResponseSchema,
   healthResponseSchema,
   operationEventListResponseSchema,
+  profileAddonListResponseSchema,
   profileSchema,
   publicConfigResponseSchema,
   sessionCapacitySchema,
@@ -60,6 +61,12 @@ class TestBrowserWorkerDriver implements BrowserWorkerDriver {
 }
 
 const createConfig = (maxSessions = 1): ServerConfig => ({
+  addons: {
+    firefoxMajorVersion: 153,
+    maxPackageBytes: 25 * 1024 * 1024,
+    watchEnabled: false,
+    watchIntervalSeconds: 60,
+  },
   appVersion: '0.1.0-test',
   browserWorker: {
     cpus: 2,
@@ -392,6 +399,44 @@ describe('MediaDeck API', () => {
       error: 'validation_error',
       statusCode: 400,
     });
+  });
+
+  it('exposes an isolated add-on inventory and safely rejects malformed XPIs', async () => {
+    const app = await buildApplication({
+      config: createConfig(),
+      logger: false,
+    });
+    const created = await app.inject({
+      method: 'POST',
+      payload: { name: 'Add-on profile' },
+      url: '/api/v1/profiles',
+    });
+    const createdProfile = profileSchema.parse(created.json());
+
+    const inventory = await app.inject({
+      method: 'GET',
+      url: `/api/v1/profiles/${createdProfile.id}/addons`,
+    });
+    expect(profileAddonListResponseSchema.parse(inventory.json())).toEqual({
+      addons: [],
+    });
+
+    const invalidPackage = await app.inject({
+      headers: {
+        'content-type': 'application/x-xpinstall',
+        'x-mediadeck-filename': 'invalid.xpi',
+      },
+      method: 'POST',
+      payload: Buffer.from('not an xpi'),
+      url: `/api/v1/profiles/${createdProfile.id}/addons`,
+    });
+    expect(invalidPackage.statusCode).toBe(400);
+    expect(invalidPackage.json()).toMatchObject({
+      error: 'invalid_addon_package',
+      statusCode: 400,
+    });
+
+    await app.close();
   });
 
   it('protects privileged operations after an administrator PIN is enabled', async () => {

@@ -198,6 +198,11 @@ The named Docker volume `mediadeck-data` is mounted at `/data`:
 
 ```text
 /data/
+  addons/
+    inbox/
+      <profile-uuid>/
+    rejected/
+      <profile-uuid>/
   backups/
     <backup-id>/
       manifest.json
@@ -208,6 +213,9 @@ The named Docker volume `mediadeck-data` is mounted at `/data`:
   profiles/
     <profile-uuid>/
       firefox/
+        mediadeck/
+          addons/
+          policy/
   runtime/
     approved-update.json
     restore-request.json
@@ -221,6 +229,48 @@ persistent Firefox profile into more than one future browser worker.
 
 The container runs as an unprivileged user with a read-only root filesystem.
 Only `/data` and the temporary `/tmp` filesystem are writable.
+
+## Managed Firefox Add-ons
+
+Open Settings from a persistent profile to install a Mozilla-signed `.xpi`,
+enable or disable it, remove it, or install a newer package with the same
+Firefox extension ID. Guest is temporary and has no add-on inventory.
+
+Stop the selected profile's active stream before changing add-ons. MediaDeck
+preflights ZIP structure, manifest fields, an explicit Firefox ID, release
+signature artifacts, package size, and compatibility with
+`FIREFOX_MAJOR_VERSION`. The pinned release Firefox performs final
+cryptographic signature verification at launch.
+
+Enabled packages become `force_installed`; disabled packages become `blocked`.
+The generated profile-specific policy is mounted read-only at
+`/etc/firefox/policies`, separately from the writable Firefox profile.
+Operators cannot upload arbitrary policy JSON.
+
+Add-on configuration defaults are:
+
+| Variable                       | Default | Purpose                                   |
+| ------------------------------ | ------- | ----------------------------------------- |
+| `FIREFOX_MAJOR_VERSION`        | `153`   | Compatibility target; match worker image  |
+| `ADDON_MAX_PACKAGE_MB`         | `25`    | Maximum accepted XPI size                 |
+| `ADDON_WATCH_ENABLED`          | `false` | Periodically scan watched profile folders |
+| `ADDON_WATCH_INTERVAL_SECONDS` | `60`    | Watch scan interval when enabled          |
+
+For optional watched imports, copy packages to:
+
+```text
+/data/addons/inbox/<profile-uuid>/*.xpi
+```
+
+Enable periodic imports with `ADDON_WATCH_ENABLED=true`, or choose **Scan
+folder** in Settings for an immediate scan. Valid packages are imported and
+removed from the inbox. Invalid, incompatible, or non-newer packages move to
+`/data/addons/rejected/<profile-uuid>/` beside an `.error.json` reason.
+Folders that do not match a current profile are ignored.
+
+The inventory API is `GET /api/v1/profiles/<profile-id>/addons`. Install,
+enable/disable, remove, and watched-scan routes are administrator-protected
+when a PIN is configured.
 
 ## Administrator Operations
 

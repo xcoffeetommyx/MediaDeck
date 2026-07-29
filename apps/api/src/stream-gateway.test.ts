@@ -81,6 +81,12 @@ afterEach(async () => {
 
 function createConfig(): ServerConfig {
   return {
+    addons: {
+      firefoxMajorVersion: 153,
+      maxPackageBytes: 25 * 1024 * 1024,
+      watchEnabled: false,
+      watchIntervalSeconds: 60,
+    },
     appVersion: '0.1.0-test',
     browserWorker: {
       cpus: 2,

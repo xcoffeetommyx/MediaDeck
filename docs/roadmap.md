@@ -19,12 +19,12 @@
 
 Firefox add-on management:
 
-- Install .xpi
-- Enable/Disable
-- Remove
-- Update
-- Per-profile extensions
-- Optional watched add-ons folder
+- [x] Install signed `.xpi`
+- [x] Enable/disable
+- [x] Remove
+- [x] Update
+- [x] Per-profile extensions
+- [x] Optional watched add-ons folder
 
 ## v1.2
 

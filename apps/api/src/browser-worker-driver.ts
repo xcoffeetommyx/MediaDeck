@@ -9,6 +9,7 @@ export type BrowserWorkerState =
 export type StartBrowserWorkerInput = {
   kind: 'profile' | 'guest';
   launchUrl: string;
+  policyStoragePath?: string;
   sessionId: string;
   storagePath: string;
 };
@@ -137,6 +138,7 @@ export class DockerBrowserWorkerDriver implements BrowserWorkerDriver {
   async start({
     kind,
     launchUrl,
+    policyStoragePath,
     sessionId,
     storagePath,
   }: StartBrowserWorkerInput): Promise<{ workerId: string }> {
@@ -224,6 +226,19 @@ export class DockerBrowserWorkerDriver implements BrowserWorkerDriver {
                   Subpath: storagePath,
                 },
               },
+              ...(policyStoragePath
+                ? [
+                    {
+                      ReadOnly: true,
+                      Source: this.config.dataVolumeName,
+                      Target: '/etc/firefox/policies',
+                      Type: 'volume',
+                      VolumeOptions: {
+                        Subpath: policyStoragePath,
+                      },
+                    },
+                  ]
+                : []),
             ],
             NetworkMode: this.config.network,
             NanoCpus: Math.round(this.config.cpus * 1_000_000_000),

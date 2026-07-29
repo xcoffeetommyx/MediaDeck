@@ -23,6 +23,9 @@ const browserWorkerImage =
   'ghcr.io/linuxserver/firefox@sha256:e4b9310d76fbaef54de9b6a440113729c442125f50668ad9e9f678c0af1ae700';
 
 const serverEnvironmentSchema = z.object({
+  ADDON_MAX_PACKAGE_MB: z.coerce.number().int().min(1).max(100).default(25),
+  ADDON_WATCH_ENABLED: booleanFromEnvironment,
+  ADDON_WATCH_INTERVAL_SECONDS: z.coerce.number().int().min(30).max(3600).default(60),
   APP_VERSION: z.string().min(1).default('0.1.0'),
   BROWSER_DATA_VOLUME: z.string().min(1).default('mediadeck-data'),
   BROWSER_FRAMERATE: z.coerce.number().int().min(8).max(120).default(60),
@@ -54,6 +57,7 @@ const serverEnvironmentSchema = z.object({
   BROWSER_WORKER_URL: httpUrl.optional(),
   DATA_DIR: z.string().min(1).default('./.data'),
   DOCKER_SOCKET_PATH: z.string().min(1).default('/var/run/docker.sock'),
+  FIREFOX_MAJOR_VERSION: z.coerce.number().int().min(100).max(999).default(153),
   HOST: z.string().min(1).default('0.0.0.0'),
   LOG_LEVEL: z
     .enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent'])
@@ -94,7 +98,15 @@ export type BrowserWorkerConfig = {
   videoBitrate: number;
 };
 
+export type AddonConfig = {
+  firefoxMajorVersion: number;
+  maxPackageBytes: number;
+  watchEnabled: boolean;
+  watchIntervalSeconds: number;
+};
+
 export type ServerConfig = {
+  addons: AddonConfig;
   appVersion: string;
   browserWorker: BrowserWorkerConfig;
   browserWorkerUrl?: string;
@@ -110,6 +122,9 @@ export type ServerConfig = {
 };
 
 export type StoragePaths = {
+  addonInbox: string;
+  addonRejected: string;
+  addons: string;
   backups: string;
   database: string;
   databaseFile: string;
@@ -127,6 +142,12 @@ export function loadServerConfig(
   const publicDirectory = parsed.PUBLIC_DIR ? resolve(parsed.PUBLIC_DIR) : undefined;
 
   return {
+    addons: {
+      firefoxMajorVersion: parsed.FIREFOX_MAJOR_VERSION,
+      maxPackageBytes: parsed.ADDON_MAX_PACKAGE_MB * 1024 * 1024,
+      watchEnabled: parsed.ADDON_WATCH_ENABLED,
+      watchIntervalSeconds: parsed.ADDON_WATCH_INTERVAL_SECONDS,
+    },
     appVersion: parsed.APP_VERSION,
     browserWorker: {
       cpus: parsed.BROWSER_WORKER_CPUS,
@@ -171,6 +192,9 @@ export function getStoragePaths(dataDirectory: string): StoragePaths {
   const root = resolve(dataDirectory);
 
   return {
+    addonInbox: resolve(root, 'addons', 'inbox'),
+    addonRejected: resolve(root, 'addons', 'rejected'),
+    addons: resolve(root, 'addons'),
     backups: resolve(root, 'backups'),
     database: resolve(root, 'database'),
     databaseFile: resolve(root, 'database', 'mediadeck.sqlite'),

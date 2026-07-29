@@ -3,15 +3,26 @@ import type {
   AdministratorStatus,
   BackupListResponse,
   BackupSummary,
+  AddonWatchScanResponse,
   BrowserResourceReport,
   BrowserWorkerHealthResponse,
   OperationalDiagnostics,
   OperationEventListResponse,
+  Profile,
+  ProfileAddon,
+  ProfileAddonListResponse,
   RestoreBackupResponse,
   UnlockAdministratorResponse,
   UpdateStatus,
 } from '@mediadeck/contracts';
-import { type ReactNode, useCallback, useEffect, useState } from 'react';
+import {
+  type ChangeEvent,
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from 'react';
 
 import {
   ApiError,
@@ -23,6 +34,7 @@ import {
 type SettingsViewProperties = {
   controllerConnected: boolean;
   onBack: () => void;
+  profile: Profile | null;
   workerHealth: BrowserWorkerHealthResponse | null;
 };
 
@@ -56,6 +68,7 @@ function authorized(status: AdministratorStatus | null): boolean {
 export function SettingsView({
   controllerConnected,
   onBack,
+  profile,
   workerHealth,
 }: SettingsViewProperties) {
   const [administrator, setAdministrator] = useState<AdministratorStatus | null>(null);
@@ -64,23 +77,31 @@ export function SettingsView({
   const [backups, setBackups] = useState<BackupSummary[]>([]);
   const [events, setEvents] = useState<OperationEventListResponse['events']>([]);
   const [resources, setResources] = useState<BrowserResourceReport | null>(null);
+  const [addons, setAddons] = useState<ProfileAddon[]>([]);
   const [newPin, setNewPin] = useState('');
   const [busy, setBusy] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const addonFileInput = useRef<HTMLInputElement>(null);
 
   const load = useCallback(async () => {
-    const [nextAdministrator, nextSettings, nextDiagnostics, nextBackups] =
+    const [nextAdministrator, nextSettings, nextDiagnostics, nextBackups, nextAddons] =
       await Promise.all([
         requestJson<AdministratorStatus>('/api/v1/admin/status'),
         requestJson<AdministratorSettings>('/api/v1/settings'),
         requestJson<OperationalDiagnostics>('/api/v1/operations/diagnostics'),
         requestJson<BackupListResponse>('/api/v1/backups'),
+        profile
+          ? requestJson<ProfileAddonListResponse>(
+              `/api/v1/profiles/${profile.id}/addons`,
+            )
+          : Promise.resolve({ addons: [] }),
       ]);
     setAdministrator(nextAdministrator);
     setSettings(nextSettings);
     setDiagnostics(nextDiagnostics);
     setBackups(nextBackups.backups);
+    setAddons(nextAddons.addons);
     if (nextAdministrator.authenticated) {
       const [log, resourceReport] = await Promise.all([
         requestJson<OperationEventListResponse>('/api/v1/operations/logs?limit=8'),
@@ -92,7 +113,7 @@ export function SettingsView({
       setEvents([]);
       setResources(null);
     }
-  }, []);
+  }, [profile]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -130,6 +151,29 @@ export function SettingsView({
 
   const pinProtected = Boolean(administrator?.pinEnabled);
   const controlsLocked = pinProtected && !authorized(administrator);
+
+  const installAddon = useCallback(
+    async (event: ChangeEvent<HTMLInputElement>) => {
+      const file = event.target.files?.[0];
+      event.target.value = '';
+      if (!file || !profile) return;
+      await run('addon-install', async () => {
+        const addon = await requestJson<ProfileAddon>(
+          `/api/v1/profiles/${profile.id}/addons`,
+          {
+            body: await file.arrayBuffer(),
+            headers: {
+              'Content-Type': 'application/x-xpinstall',
+              'X-MediaDeck-Filename': file.name,
+            },
+            method: 'POST',
+          },
+        );
+        return `${addon.name} ${addon.version} is ready for ${profile.name}.`;
+      });
+    },
+    [profile, run],
+  );
 
   return (
     <DetailView
@@ -215,6 +259,127 @@ export function SettingsView({
       </div>
 
       <div className="operations-grid">
+        <OperationCard
+          action={
+            <div className="row-actions">
+              <input
+                accept=".xpi,application/x-xpinstall"
+                aria-label="Choose Firefox add-on package"
+                className="visually-hidden"
+                onChange={(event) => void installAddon(event)}
+                ref={addonFileInput}
+                type="file"
+              />
+              <button
+                className="primary-button focusable"
+                data-focusable="true"
+                disabled={busy !== null || controlsLocked || !profile}
+                onClick={() => addonFileInput.current?.click()}
+              >
+                {busy === 'addon-install' ? 'Checking packageâ€¦' : 'Install XPI'}
+              </button>
+              <button
+                className="secondary-button focusable"
+                data-focusable="true"
+                disabled={busy !== null || controlsLocked}
+                onClick={() =>
+                  void run('addon-scan', async () => {
+                    const result = await requestJson<AddonWatchScanResponse>(
+                      '/api/v1/addons/watch/scan',
+                      {
+                        headers: { 'Content-Type': 'application/json' },
+                        method: 'POST',
+                        body: '{}',
+                      },
+                    );
+                    return `Watched folder: ${result.imported} imported, ${result.rejected} rejected, ${result.skipped} skipped.`;
+                  })
+                }
+              >
+                Scan folder
+              </button>
+            </div>
+          }
+          eyebrow="Firefox"
+          title={profile ? `${profile.name} add-ons` : 'Guest add-ons'}
+          wide
+        >
+          {!profile ? (
+            <p className="operation-empty">
+              Guest is temporary and does not keep Firefox add-ons.
+            </p>
+          ) : addons.length === 0 ? (
+            <p className="operation-empty">
+              No managed add-ons. Install a Mozilla-signed XPI with an explicit Firefox
+              extension ID.
+            </p>
+          ) : (
+            <div className="backup-list">
+              {addons.map((addon) => (
+                <div className="backup-row addon-row" key={addon.id}>
+                  <div>
+                    <strong>
+                      {addon.name} <span>v{addon.version}</span>
+                    </strong>
+                    <span>
+                      {addon.enabled ? 'Enabled' : 'Disabled'} Â·{' '}
+                      {addon.permissions.length} declared permissions Â· {addon.source}
+                    </span>
+                    <code>{addon.id}</code>
+                  </div>
+                  <div className="row-actions">
+                    <button
+                      aria-pressed={addon.enabled}
+                      className="secondary-button focusable"
+                      data-focusable="true"
+                      disabled={busy !== null || controlsLocked}
+                      onClick={() =>
+                        void run(`addon-${addon.id}`, async () => {
+                          await requestJson(
+                            `/api/v1/profiles/${profile.id}/addons/${encodeURIComponent(addon.id)}`,
+                            {
+                              body: JSON.stringify({
+                                enabled: !addon.enabled,
+                              }),
+                              headers: { 'Content-Type': 'application/json' },
+                              method: 'PATCH',
+                            },
+                          );
+                          return `${addon.name} ${addon.enabled ? 'disabled' : 'enabled'}.`;
+                        })
+                      }
+                    >
+                      {addon.enabled ? 'Disable' : 'Enable'}
+                    </button>
+                    <button
+                      className="secondary-button danger-button focusable"
+                      data-focusable="true"
+                      disabled={busy !== null || controlsLocked}
+                      onClick={() => {
+                        if (!window.confirm(`Remove ${addon.name}?`)) return;
+                        void run(`addon-remove-${addon.id}`, async () => {
+                          await requestJson(
+                            `/api/v1/profiles/${profile.id}/addons/${encodeURIComponent(addon.id)}`,
+                            { method: 'DELETE' },
+                          );
+                          return `${addon.name} removed.`;
+                        });
+                      }}
+                    >
+                      Remove
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+          <p className="operation-help">
+            Add-on changes apply on the next Firefox launch. Install a newer package
+            with the same ID to update it. Stop this profileâ€™s active stream before
+            making changes.
+          </p>
+        </OperationCard>
+
         <OperationCard
           badge={
             resources

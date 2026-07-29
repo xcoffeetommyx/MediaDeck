@@ -132,17 +132,27 @@ dynamic third-party plugin loading to v1.
 
 ## 6. Firefox Add-ons
 
-Status: Accepted for future implementation
+Status: Implemented in Stage 8 (2026-07-28)
 
-Add-on management is deferred to v1.1. The v1 profile and browser-worker design
-must preserve per-profile add-on state and must not bake extensions into a
-shared mutable Firefox profile.
+MediaDeck stores add-on metadata in SQLite and each signed XPI beneath only its
+own persistent profile. Guest sessions never receive persistent add-on state.
+All mutations require the selected profile to be stopped.
 
-Future add-on management will support installation, enable/disable, removal,
-updates, and an optional watched add-ons directory. Firefox enterprise policy
-configuration and user-installed extension state must remain separate so that
-managed MediaDeck behavior cannot be accidentally overwritten by a user
-extension.
+At launch, the worker mounts that profile's generated policy directory
+read-only at `/etc/firefox/policies`. Enabled extensions use
+`force_installed` with a profile-local `file://` package; disabled extensions
+use `blocked`. This policy is generated separately from the normal writable
+Firefox profile, so browser state cannot overwrite MediaDeck's source of truth.
+
+Packages must be bounded ZIP-format WebExtensions with one root manifest,
+an explicit Firefox ID, supported manifest/version fields, a release-signature
+artifact, and compatibility with the pinned Firefox major version. Release
+Firefox remains the final cryptographic signature verifier. Themes and
+arbitrary Firefox policy uploads are intentionally unsupported.
+
+Optional watched imports are scoped by profile UUID beneath
+`/data/addons/inbox`. Failed packages move to a rejected directory with a
+machine-readable reason rather than being retried indefinitely.
 
 ## 7. Networking and Authentication
 

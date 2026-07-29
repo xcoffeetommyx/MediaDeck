@@ -208,6 +208,8 @@ worker, and kept the second worker running. See
 
 ## Stage 8: Firefox Add-on Management
 
+Status: Complete (2026-07-28)
+
 Scope:
 
 - Per-profile add-on inventory
@@ -223,6 +225,14 @@ Validation:
 - Managed MediaDeck policies remain intact
 
 This stage targets v1.1.
+
+Validation completed with package/parser, profile-isolation, policy-state,
+watched-directory, API, and controller UI tests plus a live production-container
+exercise on Firefox 153. Mozilla-signed uBlock Origin was active only in its
+selected profile, its policy mount was read-only, an active profile rejected
+changes, disabling removed the extension on relaunch, and a watched package was
+imported only into a second profile. See
+[Stage 8 Firefox Add-on Management](stage-8-firefox-addons.md).
 
 ## Stage 9: Product Polish and Release
 
