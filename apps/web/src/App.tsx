@@ -430,6 +430,9 @@ function YouTubeView({
   const [exitError, setExitError] = useState<string | null>(null);
   const [fullscreenError, setFullscreenError] = useState<string | null>(null);
   const [keyboardError, setKeyboardError] = useState<string | null>(null);
+  // Filling the viewport is MediaDeck's own layout state and cannot be taken
+  // away by the browser. Real fullscreen is requested alongside it as a bonus.
+  const [filled, setFilled] = useState(false);
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const stageRef = useRef<HTMLElement>(null);
   const launchInFlight = useRef(false);
@@ -536,6 +539,7 @@ function YouTubeView({
   const leaveFullscreen = useCallback(() => {
     fullscreenIntent.current = false;
     fullscreenRetries.current = 0;
+    setFilled(false);
     if (document.fullscreenElement) {
       void document.exitFullscreen().catch(() => {
         // Leaving fullscreen is best effort; the view still returns.
@@ -544,18 +548,18 @@ function YouTubeView({
   }, []);
 
   /*
-   * Back is one level, not the whole session. While the stage is fullscreen,
-   * B/Escape returns to the windowed viewer; pressing it again stops Brave.
-   * This also stops a deliberate exit from being fought by the re-assert
-   * handler above, because leaving clears the intent.
+   * Back is one level, not the whole session. While the stage fills the
+   * screen, B/Escape returns to the windowed viewer; pressing it again stops
+   * Brave. This also stops a deliberate exit from being fought by the
+   * re-assert handler below, because leaving clears the intent.
    */
   const handleBack = useCallback(() => {
-    if (document.fullscreenElement) {
+    if (filled || document.fullscreenElement) {
       leaveFullscreen();
       return;
     }
     requestExit();
-  }, [leaveFullscreen, requestExit]);
+  }, [filled, leaveFullscreen, requestExit]);
 
   useEffect(() => {
     registerBackHandler(handleBack);
@@ -659,12 +663,18 @@ function YouTubeView({
     }
   }, [accessToken, recovering, reloadStream, session]);
 
+  /*
+   * The viewport-filling layout is what the viewer actually sees, and it is
+   * MediaDeck's own state, so no browser can take it away. Real fullscreen is
+   * requested on top of it purely to hide the host browser's chrome; if that
+   * is refused, or granted and then dropped, the picture stays full-bleed.
+   */
   const enterFullscreen = useCallback(async () => {
+    setFilled(true);
+    setFullscreenError(null);
+
     const stage = stageRef.current;
-    if (!stage?.requestFullscreen) {
-      setFullscreenError('Fullscreen is not available in this browser.');
-      return;
-    }
+    if (!stage?.requestFullscreen) return;
 
     fullscreenIntent.current = true;
     fullscreenRequestedAt.current = Date.now();
@@ -672,22 +682,18 @@ function YouTubeView({
 
     try {
       await stage.requestFullscreen();
-      setFullscreenError(null);
     } catch {
       fullscreenIntent.current = false;
-      setFullscreenError(
-        'Fullscreen was blocked. You can still use the browser’s own fullscreen control.',
-      );
     }
   }, []);
 
   /*
-   * Consoles and TV browsers drop fullscreen a beat after it is granted — the
-   * on-screen keyboard, a focus change inside the embedded client, or the
-   * client requesting fullscreen for itself all release the element MediaDeck
-   * put there. Re-assert it, but only within the transient-activation window
-   * that followed the user's own click, and only a couple of times. A later
-   * exit is the user leaving fullscreen deliberately and is left alone.
+   * Consoles and TV browsers hand fullscreen over and then release it a beat
+   * later. Re-assert it once or twice, but understand the limit: the spec has
+   * requestFullscreen consume transient activation, so a retry without a fresh
+   * button press is usually refused. That is why the filling layout above —
+   * not this handler — is what keeps the picture full-bleed. A later exit is
+   * the viewer leaving on purpose and is left alone.
    */
   useEffect(() => {
     const handleFullscreenChange = () => {
@@ -782,7 +788,7 @@ function YouTubeView({
 
   return (
     <section
-      className="youtube-view"
+      className={`youtube-view ${filled ? 'is-filled' : ''}`}
       data-gamepad-capture={entered && frameLoaded ? 'true' : undefined}
       aria-label={`YouTube for ${profileName}`}
       ref={stageRef}
@@ -841,12 +847,13 @@ function YouTubeView({
             Keyboard
           </button>
           <button
-            aria-label="Enter fullscreen"
+            aria-label={filled ? 'Exit fullscreen' : 'Enter fullscreen'}
+            aria-pressed={filled}
             className="stream-control focusable"
             data-focusable="true"
-            onClick={() => void enterFullscreen()}
+            onClick={() => (filled ? leaveFullscreen() : void enterFullscreen())}
           >
-            Fullscreen
+            {filled ? 'Exit full' : 'Fullscreen'}
           </button>
         </div>
       </div>

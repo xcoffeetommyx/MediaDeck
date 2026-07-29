@@ -738,8 +738,28 @@ describe('MediaDeck application shell', () => {
     expect(screen.getByText(/running 2 of 2 streams/)).toBeInTheDocument();
   });
 
-  it('re-asserts fullscreen when the client drops it moments later', async () => {
-    const { fullscreen, user } = await openViewer();
+  it('keeps the picture full-bleed after the browser drops fullscreen', async () => {
+    const { fullscreen } = await openViewer();
+    const stage = document.querySelector('.youtube-view')!;
+    expect(stage).not.toHaveClass('is-filled');
+
+    await fullscreen.enter();
+    expect(stage).toHaveClass('is-filled');
+
+    // The console hands fullscreen back a beat later. Whether or not the
+    // re-request is honoured, the layout must not back out.
+    fullscreen.dropExternally();
+    expect(stage).toHaveClass('is-filled');
+
+    // Even once the re-assert budget is spent and the API has given up.
+    fullscreen.dropExternally();
+    fullscreen.dropExternally();
+    fullscreen.dropExternally();
+    expect(stage).toHaveClass('is-filled');
+  });
+
+  it('re-asserts fullscreen a bounded number of times', async () => {
+    const { fullscreen } = await openViewer();
     await fullscreen.enter();
     expect(fullscreen.requestFullscreen).toHaveBeenCalledTimes(1);
 
@@ -753,7 +773,21 @@ describe('MediaDeck application shell', () => {
     // Bounded: MediaDeck stops fighting after two recoveries.
     fullscreen.dropExternally();
     expect(fullscreen.requestFullscreen).toHaveBeenCalledTimes(3);
-    expect(user).toBeDefined();
+  });
+
+  it('lets the viewer leave the filled layout from the toolbar', async () => {
+    const { fullscreen } = await openViewer();
+    const stage = document.querySelector('.youtube-view')!;
+
+    await fullscreen.enter();
+    expect(stage).toHaveClass('is-filled');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Exit fullscreen' }));
+    expect(stage).not.toHaveClass('is-filled');
+    expect(fullscreen.exitFullscreen).toHaveBeenCalled();
+    expect(
+      screen.getByRole('button', { name: 'Enter fullscreen' }),
+    ).toBeInTheDocument();
   });
 
   it('does not fight a deliberate fullscreen exit', async () => {

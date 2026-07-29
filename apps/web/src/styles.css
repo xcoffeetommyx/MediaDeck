@@ -1650,6 +1650,21 @@ code {
   min-height: 0;
 }
 
+/*
+ * MediaDeck's own full-bleed state. The Fullscreen API is requested alongside
+ * this, but a console browser may refuse it or hand it back moments later —
+ * this layout is what actually keeps the picture filling the screen, and
+ * nothing outside MediaDeck can undo it.
+ */
+.youtube-view.is-filled {
+  position: fixed;
+  z-index: 60;
+  inset: 0;
+  width: 100%;
+  height: 100dvh;
+  min-height: 0;
+}
+
 .stream-frame {
   display: block;
   width: 100%;
@@ -1661,6 +1676,39 @@ code {
 
 .youtube-view:fullscreen .stream-frame {
   height: calc(100vh - 4.25rem);
+}
+
+/* Nothing is subtracted for the toolbar, because it is off-stage. */
+.youtube-view.is-filled .stream-frame {
+  height: 100dvh;
+  margin-top: 0;
+}
+
+/*
+ * The toolbar slides out of the way while filled and comes back whenever it
+ * holds focus, so D-pad Up still reaches it and a pointer can hover it.
+ */
+.youtube-view.is-filled .stream-toolbar {
+  transform: translateY(-100%);
+  transition: transform var(--duration) var(--ease);
+}
+
+.youtube-view.is-filled .stream-toolbar:focus-within,
+.youtube-view.is-filled .stream-toolbar:hover {
+  transform: none;
+}
+
+/* A reveal strip along the top edge, so a pointer can bring the hidden
+   toolbar back the way any media player does. The toolbar is shifted up by
+   its own height, which puts this pseudo-element exactly at the screen edge. */
+.youtube-view.is-filled .stream-toolbar::after {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  left: 0;
+  height: 2.5rem;
+  pointer-events: auto;
+  content: '';
 }
 
 .stream-toolbar {
