@@ -4,6 +4,7 @@ import type {
   HealthResponse,
   Profile,
   ProfileListResponse,
+  SessionCapacity,
 } from '@mediadeck/contracts';
 import {
   type FormEvent,
@@ -32,8 +33,13 @@ type ConnectionState =
 type Overlay = 'create-profile' | null;
 
 type YouTubeResumeContext =
-  | { kind: 'guest'; sessionId: string }
-  | { kind: 'profile'; profileId: string; sessionId: string };
+  | { accessToken: string; kind: 'guest'; sessionId: string }
+  | {
+      accessToken: string;
+      kind: 'profile';
+      profileId: string;
+      sessionId: string;
+    };
 
 const youtubeResumeStorageKey = 'mediadeck.youtube-session';
 
@@ -62,6 +68,8 @@ export function App() {
   const [view, setView] = useState<View>('profiles');
   const [overlay, setOverlay] = useState<Overlay>(null);
   const [youtubeSessionId, setYoutubeSessionId] = useState<string | null>(null);
+  const [youtubeAccessToken, setYoutubeAccessToken] = useState<string | null>(null);
+  const [capacity, setCapacity] = useState<SessionCapacity | null>(null);
   const resumeAttempted = useRef(false);
   const youtubeBackHandler = useRef<(() => void) | null>(null);
 
@@ -82,6 +90,7 @@ export function App() {
         const resume = readYouTubeResumeContext();
         if (resume?.kind === 'guest') {
           setActiveProfile({ kind: 'guest' });
+          setYoutubeAccessToken(resume.accessToken);
           setYoutubeSessionId(resume.sessionId);
           setView('youtube');
         } else if (resume?.kind === 'profile') {
@@ -90,6 +99,7 @@ export function App() {
           );
           if (profile) {
             setActiveProfile({ kind: 'profile', profile });
+            setYoutubeAccessToken(resume.accessToken);
             setYoutubeSessionId(resume.sessionId);
             setView('youtube');
           } else {
@@ -102,6 +112,20 @@ export function App() {
       setProfilesError(getErrorMessage(error, 'Profiles could not be loaded.'));
     } finally {
       if (!signal?.aborted) setProfilesLoading(false);
+    }
+  }, []);
+
+  const loadCapacity = useCallback(async (signal?: AbortSignal) => {
+    try {
+      const next = await requestJson<SessionCapacity>(
+        '/api/v1/capacity',
+        signal ? { signal } : undefined,
+      );
+      setCapacity(next);
+    } catch (error) {
+      if (!(error instanceof DOMException && error.name === 'AbortError')) {
+        setCapacity(null);
+      }
     }
   }, []);
 
@@ -128,8 +152,13 @@ export function App() {
       });
 
     queueMicrotask(() => void loadProfiles(controller.signal));
-    return () => controller.abort();
-  }, [loadProfiles]);
+    queueMicrotask(() => void loadCapacity(controller.signal));
+    const capacityTimer = window.setInterval(() => void loadCapacity(), 10_000);
+    return () => {
+      controller.abort();
+      window.clearInterval(capacityTimer);
+    };
+  }, [loadCapacity, loadProfiles]);
 
   const navigate = useCallback((nextView: View) => {
     setOverlay(null);
@@ -160,6 +189,7 @@ export function App() {
     (profile: Profile) => {
       clearYouTubeResumeContext();
       setYoutubeSessionId(null);
+      setYoutubeAccessToken(null);
       setActiveProfile({ kind: 'profile', profile });
       navigate('home');
     },
@@ -169,6 +199,7 @@ export function App() {
   const chooseGuest = useCallback(() => {
     clearYouTubeResumeContext();
     setYoutubeSessionId(null);
+    setYoutubeAccessToken(null);
     setActiveProfile({ kind: 'guest' });
     navigate('home');
   }, [navigate]);
@@ -180,15 +211,18 @@ export function App() {
   const openYouTube = useCallback(() => {
     if (!activeProfile) return;
     const sessionId = crypto.randomUUID();
+    const accessToken = createSessionAccessToken();
     writeYouTubeResumeContext(
       activeProfile.kind === 'profile'
         ? {
             kind: 'profile',
+            accessToken,
             profileId: activeProfile.profile.id,
             sessionId,
           }
-        : { kind: 'guest', sessionId },
+        : { accessToken, kind: 'guest', sessionId },
     );
+    setYoutubeAccessToken(accessToken);
     setYoutubeSessionId(sessionId);
     navigate('youtube');
   }, [activeProfile, navigate]);
@@ -196,6 +230,7 @@ export function App() {
   const leaveYouTube = useCallback(() => {
     clearYouTubeResumeContext();
     setYoutubeSessionId(null);
+    setYoutubeAccessToken(null);
     youtubeBackHandler.current = null;
     navigate('home');
   }, [navigate]);
@@ -271,6 +306,7 @@ export function App() {
 
         {view === 'home' && activeProfile ? (
           <Home
+            capacity={capacity}
             name={profileName}
             onOpenSettings={() => navigate('settings')}
             onOpenUpdates={() => navigate('updates')}
@@ -278,8 +314,12 @@ export function App() {
           />
         ) : null}
 
-        {view === 'youtube' && activeProfile && youtubeSessionId ? (
+        {view === 'youtube' &&
+        activeProfile &&
+        youtubeSessionId &&
+        youtubeAccessToken ? (
           <YouTubeView
+            accessToken={youtubeAccessToken}
             activeProfile={activeProfile}
             initialSessionId={youtubeSessionId}
             onExit={leaveYouTube}
@@ -344,6 +384,7 @@ export function App() {
 }
 
 type YouTubeViewProperties = {
+  accessToken: string;
   activeProfile: ActiveProfile;
   initialSessionId: string;
   onExit: () => void;
@@ -351,6 +392,7 @@ type YouTubeViewProperties = {
 };
 
 function YouTubeView({
+  accessToken,
   activeProfile,
   initialSessionId,
   onExit,
@@ -386,10 +428,11 @@ function YouTubeView({
             activeProfile.kind === 'profile'
               ? {
                   kind: 'profile',
+                  accessToken,
                   profileId: activeProfile.profile.id,
                   sessionId: initialSessionId,
                 }
-              : { kind: 'guest', sessionId: initialSessionId },
+              : { accessToken, kind: 'guest', sessionId: initialSessionId },
           ),
           headers: { 'Content-Type': 'application/json' },
           method: 'POST',
@@ -400,17 +443,18 @@ function YouTubeView({
         nextSession.kind === 'profile' && nextSession.profileId
           ? {
               kind: 'profile',
+              accessToken,
               profileId: nextSession.profileId,
               sessionId: nextSession.id,
             }
-          : { kind: 'guest', sessionId: nextSession.id },
+          : { accessToken, kind: 'guest', sessionId: nextSession.id },
       );
     } catch (error) {
       setLaunchError(getErrorMessage(error, 'YouTube could not be started.'));
     } finally {
       launchInFlight.current = false;
     }
-  }, [activeProfile, initialSessionId]);
+  }, [accessToken, activeProfile, initialSessionId]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => void launch(), 0);
@@ -423,6 +467,7 @@ function YouTubeView({
     const delay = session.status === 'running' ? 10_000 : 1_500;
     const timer = window.setTimeout(() => {
       void requestJson<BrowserSession>(`/api/v1/sessions/${session.id}/heartbeat`, {
+        headers: sessionAccessHeaders(accessToken),
         method: 'POST',
       })
         .then((nextSession) => {
@@ -437,13 +482,14 @@ function YouTubeView({
     }, delay);
 
     return () => window.clearTimeout(timer);
-  }, [connectionError, exitRequested, session]);
+  }, [accessToken, connectionError, exitRequested, session]);
 
   const stopAndExit = useCallback(async () => {
     if (!session) return;
     setExitError(null);
     try {
       await requestJson<BrowserSession>(`/api/v1/sessions/${session.id}/stop`, {
+        headers: sessionAccessHeaders(accessToken),
         method: 'POST',
       });
       onExit();
@@ -453,7 +499,7 @@ function YouTubeView({
         getErrorMessage(error, 'Firefox could not be stopped. Please try again.'),
       );
     }
-  }, [onExit, session]);
+  }, [accessToken, onExit, session]);
 
   const requestExit = useCallback(() => {
     setExitRequested(true);
@@ -543,7 +589,7 @@ function YouTubeView({
     try {
       const recovered = await requestJson<BrowserSession>(
         `/api/v1/sessions/${session.id}/recover`,
-        { method: 'POST' },
+        { headers: sessionAccessHeaders(accessToken), method: 'POST' },
       );
       setSession(recovered);
       reloadStream();
@@ -554,7 +600,7 @@ function YouTubeView({
     } finally {
       setRecovering(false);
     }
-  }, [recovering, reloadStream, session]);
+  }, [accessToken, recovering, reloadStream, session]);
 
   const enterFullscreen = useCallback(async () => {
     const stage = stageRef.current;
@@ -852,11 +898,13 @@ function ProfilePicker({
 }
 
 function Home({
+  capacity,
   name,
   onOpenSettings,
   onOpenUpdates,
   onOpenYouTube,
 }: {
+  capacity: SessionCapacity | null;
   name: string;
   onOpenSettings: () => void;
   onOpenUpdates: () => void;
@@ -875,9 +923,16 @@ function Home({
           className="app-card youtube-card focusable"
           data-focusable="true"
           data-autofocus="true"
+          disabled={capacity?.atCapacity ?? false}
           onClick={onOpenYouTube}
         >
-          <span className="app-card-status">Ready</span>
+          <span className="app-card-status">
+            {capacity?.atCapacity
+              ? 'All streams busy'
+              : capacity
+                ? `${capacity.availableSlots} stream${capacity.availableSlots === 1 ? '' : 's'} free`
+                : 'Ready'}
+          </span>
           <span className="youtube-wordmark" aria-hidden="true">
             <span className="youtube-play">
               <i />
@@ -885,7 +940,9 @@ function Home({
             YouTube
           </span>
           <span className="app-card-copy">
-            Your subscriptions, playlists, and recommendations in Firefox.
+            {capacity?.atCapacity
+              ? `The host is running ${capacity.activeSessions} of ${capacity.maxSessions} streams. Try again when one closes.`
+              : 'Your subscriptions, playlists, and recommendations in Firefox.'}
           </span>
           <span className="app-card-action">
             Start watching <b>→</b>
@@ -1169,6 +1226,7 @@ function readYouTubeResumeContext(): YouTubeResumeContext | null {
     const parsed = JSON.parse(stored) as Partial<YouTubeResumeContext>;
     if (
       typeof parsed.sessionId !== 'string' ||
+      typeof parsed.accessToken !== 'string' ||
       (parsed.kind !== 'guest' && parsed.kind !== 'profile')
     ) {
       return null;
@@ -1177,12 +1235,17 @@ function readYouTubeResumeContext(): YouTubeResumeContext | null {
       return typeof parsed.profileId === 'string'
         ? {
             kind: 'profile',
+            accessToken: parsed.accessToken,
             profileId: parsed.profileId,
             sessionId: parsed.sessionId,
           }
         : null;
     }
-    return { kind: 'guest', sessionId: parsed.sessionId };
+    return {
+      accessToken: parsed.accessToken,
+      kind: 'guest',
+      sessionId: parsed.sessionId,
+    };
   } catch {
     return null;
   }
@@ -1194,4 +1257,15 @@ function writeYouTubeResumeContext(context: YouTubeResumeContext): void {
 
 function clearYouTubeResumeContext(): void {
   sessionStorage.removeItem(youtubeResumeStorageKey);
+}
+
+function createSessionAccessToken(): string {
+  const bytes = crypto.getRandomValues(new Uint8Array(32));
+  let binary = '';
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary).replaceAll('+', '-').replaceAll('/', '_').replaceAll('=', '');
+}
+
+function sessionAccessHeaders(accessToken: string): HeadersInit {
+  return { 'X-MediaDeck-Session-Token': accessToken };
 }

@@ -5,12 +5,14 @@ import { join } from 'node:path';
 import type { ServerConfig } from '@mediadeck/config';
 import {
   backupSummarySchema,
+  browserResourceReportSchema,
   browserSessionSchema,
   browserWorkerHealthResponseSchema,
   healthResponseSchema,
   operationEventListResponseSchema,
   profileSchema,
   publicConfigResponseSchema,
+  sessionCapacitySchema,
   unlockAdministratorResponseSchema,
   updateStatusSchema,
 } from '@mediadeck/contracts';
@@ -37,6 +39,17 @@ class TestBrowserWorkerDriver implements BrowserWorkerDriver {
     return Promise.resolve(true);
   }
 
+  metrics() {
+    return Promise.resolve({
+      cpuPercent: 10,
+      memoryBytes: 512 * 1024 * 1024,
+      memoryLimitBytes: 2048 * 1024 * 1024,
+      networkReceiveBytes: 1000,
+      networkTransmitBytes: 2000,
+      pids: 30,
+    });
+  }
+
   start({ sessionId }: StartBrowserWorkerInput): Promise<{ workerId: string }> {
     return Promise.resolve({ workerId: `worker-${sessionId}` });
   }
@@ -49,17 +62,23 @@ class TestBrowserWorkerDriver implements BrowserWorkerDriver {
 const createConfig = (maxSessions = 1): ServerConfig => ({
   appVersion: '0.1.0-test',
   browserWorker: {
+    cpus: 2,
     dataVolumeName: 'mediadeck-test',
+    driDevice: '/dev/dri/renderD128',
     dockerSocketPath: '/var/run/docker.sock',
     driver: 'disabled',
     framerate: 60,
+    gpuMode: 'software',
     healthIntervalSeconds: 15,
     idleTimeoutSeconds: 1800,
     image: 'test-image',
     maxSessions,
+    memoryMegabytes: 2048,
     network: 'test-network',
     pgid: 1000,
+    pidsLimit: 512,
     puid: 1000,
+    sharedMemoryMegabytes: 1024,
     startUrl: 'https://www.youtube.com/',
     timezone: 'Etc/UTC',
     videoBitrate: 12,
@@ -69,6 +88,7 @@ const createConfig = (maxSessions = 1): ServerConfig => ({
   logLevel: 'silent',
   nodeEnvironment: 'test',
   port: 3000,
+  sessionCookieSecure: false,
   trustProxy: false,
 });
 
@@ -201,6 +221,7 @@ describe('MediaDeck API', () => {
     const createdSessionResponse = await app.inject({
       method: 'POST',
       payload: {
+        accessToken: 'a'.repeat(43),
         kind: 'profile',
         profileId: profile.id,
       },
@@ -218,9 +239,43 @@ describe('MediaDeck API', () => {
     expect(createdSessionResponse.body).not.toContain('worker-');
     expect(createdSessionResponse.body).not.toContain('storagePath');
 
+    const capacity = sessionCapacitySchema.parse(
+      (
+        await app.inject({
+          method: 'GET',
+          url: '/api/v1/capacity',
+        })
+      ).json(),
+    );
+    expect(capacity).toMatchObject({
+      activeSessions: 1,
+      availableSlots: 1,
+      maxSessions: 2,
+    });
+
+    const unauthorizedHeartbeat = await app.inject({
+      method: 'POST',
+      url: `/api/v1/sessions/${session.id}/heartbeat`,
+    });
+    expect(unauthorizedHeartbeat.statusCode).toBe(401);
+
+    const resources = browserResourceReportSchema.parse(
+      (
+        await app.inject({
+          method: 'GET',
+          url: '/api/v1/operations/resources',
+        })
+      ).json(),
+    );
+    expect(resources.sessions[0]).toMatchObject({
+      memoryBytes: 512 * 1024 * 1024,
+      sessionId: session.id,
+    });
+
     const duplicateResponse = await app.inject({
       method: 'POST',
       payload: {
+        accessToken: 'a'.repeat(43),
         kind: 'profile',
         profileId: profile.id,
       },
@@ -229,6 +284,7 @@ describe('MediaDeck API', () => {
     expect(duplicateResponse.statusCode).toBe(409);
 
     const stoppedResponse = await app.inject({
+      headers: { 'x-mediadeck-session-token': 'a'.repeat(43) },
       method: 'POST',
       url: `/api/v1/sessions/${session.id}/stop`,
     });
@@ -270,12 +326,12 @@ describe('MediaDeck API', () => {
     const sessionId = '2abfc294-b100-48e1-93ad-bd34718e9a97';
     const firstLaunch = await app.inject({
       method: 'POST',
-      payload: { kind: 'guest', sessionId },
+      payload: { accessToken: 'b'.repeat(43), kind: 'guest', sessionId },
       url: '/api/v1/applications/youtube/launch',
     });
     const secondLaunch = await app.inject({
       method: 'POST',
-      payload: { kind: 'guest', sessionId },
+      payload: { accessToken: 'b'.repeat(43), kind: 'guest', sessionId },
       url: '/api/v1/applications/youtube/launch',
     });
 
@@ -285,6 +341,33 @@ describe('MediaDeck API', () => {
       streamUrl: `/stream/${sessionId}/`,
     });
     expect(browserSessionSchema.parse(secondLaunch.json()).id).toBe(sessionId);
+
+    await app.close();
+  });
+
+  it('marks stream authorization cookies Secure in the production topology', async () => {
+    const app = await buildApplication({
+      config: {
+        ...createConfig(),
+        sessionCookieSecure: true,
+      },
+      logger: false,
+      workerDriver: new TestBrowserWorkerDriver(),
+    });
+
+    const response = await app.inject({
+      method: 'POST',
+      payload: {
+        accessToken: 's'.repeat(43),
+        kind: 'guest',
+        sessionId: '51ba5929-24a0-4a09-925c-3f215a607e27',
+      },
+      url: '/api/v1/applications/youtube/launch',
+    });
+
+    expect(response.headers['set-cookie']).toContain('HttpOnly');
+    expect(response.headers['set-cookie']).toContain('SameSite=Strict');
+    expect(response.headers['set-cookie']).toContain('Secure');
 
     await app.close();
   });

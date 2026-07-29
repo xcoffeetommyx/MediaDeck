@@ -6,6 +6,7 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 
 import type { ApplicationRegistry } from './application-registry.js';
+import { setStreamAccessCookie } from './session-access.js';
 import type { SessionManager } from './session-manager.js';
 
 const applicationParametersSchema = z.object({
@@ -19,6 +20,7 @@ export function registerApplicationRoutes(
   app: FastifyInstance,
   applications: ApplicationRegistry,
   sessions: SessionManager,
+  secureCookies: boolean,
 ): void {
   app.get('/api/v1/applications', (): MediaApplicationListResponse => {
     return {
@@ -26,9 +28,17 @@ export function registerApplicationRoutes(
     };
   });
 
-  app.post('/api/v1/applications/:applicationId/launch', async (request) => {
+  app.post('/api/v1/applications/:applicationId/launch', async (request, reply) => {
     const { applicationId } = applicationParametersSchema.parse(request.params);
     const input = launchMediaApplicationRequestSchema.parse(request.body);
-    return sessions.launch(applicationId, input);
+    const session = await sessions.launch(applicationId, input);
+    setStreamAccessCookie(
+      reply,
+      session.id,
+      input.accessToken,
+      sessions.capacity().idleTimeoutSeconds,
+      secureCookies,
+    );
+    return session;
   });
 }

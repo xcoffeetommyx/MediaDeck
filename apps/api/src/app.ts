@@ -102,6 +102,7 @@ export async function buildApplication({
       paths,
       store,
       workerDriver,
+      workerConfig: config.browserWorker,
     });
 
   await sessionManager.initialize();
@@ -215,14 +216,21 @@ export async function buildApplication({
     '/api/v1/browser-worker/health',
     async (): Promise<BrowserWorkerHealthResponse> => transportProbe.check(),
   );
+  app.get('/api/v1/capacity', () => sessionManager.capacity());
 
   registerProfileRoutes(app, profileManager, administrator);
-  registerSessionRoutes(app, sessionManager);
-  registerApplicationRoutes(app, applications, sessionManager);
+  registerSessionRoutes(app, sessionManager, administrator, config.sessionCookieSecure);
+  registerApplicationRoutes(
+    app,
+    applications,
+    sessionManager,
+    config.sessionCookieSecure,
+  );
   registerOperationsRoutes(app, {
     administrator,
     backups,
     operations,
+    sessions: sessionManager,
     settings,
     updates,
   });

@@ -109,9 +109,14 @@ describe('API contracts', () => {
   it('distinguishes profile and Guest session requests', () => {
     expect(
       createBrowserSessionRequestSchema.parse({
+        accessToken: 'a'.repeat(43),
         kind: 'guest',
       }),
-    ).toEqual({ applicationId: 'youtube', kind: 'guest' });
+    ).toEqual({
+      accessToken: 'a'.repeat(43),
+      applicationId: 'youtube',
+      kind: 'guest',
+    });
 
     expect(() =>
       createBrowserSessionRequestSchema.parse({

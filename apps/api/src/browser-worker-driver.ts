@@ -13,10 +13,20 @@ export type StartBrowserWorkerInput = {
   storagePath: string;
 };
 
+export type BrowserWorkerMetrics = {
+  cpuPercent: number | null;
+  memoryBytes: number;
+  memoryLimitBytes: number;
+  networkReceiveBytes: number;
+  networkTransmitBytes: number;
+  pids: number;
+};
+
 export type BrowserWorkerDriver = {
   getStreamTarget(sessionId: string, workerId: string): URL;
   inspect(workerId: string): Promise<BrowserWorkerState>;
   isReady(): Promise<boolean>;
+  metrics(workerId: string): Promise<BrowserWorkerMetrics>;
   start(input: StartBrowserWorkerInput): Promise<{ workerId: string }>;
   stop(workerId: string): Promise<void>;
 };
@@ -34,6 +44,14 @@ export class DisabledBrowserWorkerDriver implements BrowserWorkerDriver {
 
   isReady(): Promise<boolean> {
     return Promise.resolve(false);
+  }
+
+  metrics(): Promise<BrowserWorkerMetrics> {
+    return Promise.reject(
+      new WorkerUnavailableError(
+        'Browser worker management is disabled in this deployment',
+      ),
+    );
   }
 
   start(): Promise<{ workerId: string }> {
@@ -78,6 +96,25 @@ function readString(
   return typeof value === 'string' ? value : undefined;
 }
 
+function readNumber(
+  object: Record<string, unknown> | undefined,
+  key: string,
+): number | undefined {
+  const value = object?.[key];
+  return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
+}
+
+function sumNetworkBytes(
+  networks: Record<string, unknown> | undefined,
+  key: 'rx_bytes' | 'tx_bytes',
+): number {
+  if (!networks) return 0;
+  return Object.values(networks).reduce<number>((total, network) => {
+    if (!network || typeof network !== 'object' || Array.isArray(network)) return total;
+    return total + (readNumber(network as Record<string, unknown>, key) ?? 0);
+  }, 0);
+}
+
 export class DockerBrowserWorkerDriver implements BrowserWorkerDriver {
   readonly #client: DockerEngineClient;
 
@@ -105,6 +142,9 @@ export class DockerBrowserWorkerDriver implements BrowserWorkerDriver {
   }: StartBrowserWorkerInput): Promise<{ workerId: string }> {
     const containerName = `mediadeck-worker-${sessionId}`;
     const streamPath = `/stream/${sessionId}/`;
+    const memoryBytes = this.config.memoryMegabytes * 1024 * 1024;
+    const sharedMemoryBytes = this.config.sharedMemoryMegabytes * 1024 * 1024;
+    const hardwareAcceleration = this.config.gpuMode === 'dri';
 
     await this.removeByName(containerName);
 
@@ -130,12 +170,19 @@ export class DockerBrowserWorkerDriver implements BrowserWorkerDriver {
             'SELKIES_MICROPHONE_ENABLED=false|locked',
             'SELKIES_UI_SHOW_LOGO=false|locked',
             'SELKIES_UI_SHOW_SIDEBAR=false|locked',
-            'SELKIES_USE_CPU=true|locked',
+            `SELKIES_USE_CPU=${hardwareAcceleration ? 'false' : 'true'}|locked`,
             `SELKIES_VIDEO_BITRATE=${this.config.videoBitrate}`,
             'START_DOCKER=false',
             `SUBFOLDER=${streamPath}`,
             'TITLE=MediaDeck',
             `TZ=${this.config.timezone}`,
+            ...(hardwareAcceleration
+              ? [
+                  `DRI_NODE=${this.config.driDevice}`,
+                  `DRINODE=${this.config.driDevice}`,
+                  `SELKIES_DRI_NODE=${this.config.driDevice}`,
+                ]
+              : []),
           ],
           ExposedPorts: {
             '3000/tcp': {},
@@ -155,6 +202,19 @@ export class DockerBrowserWorkerDriver implements BrowserWorkerDriver {
             Timeout: 5_000_000_000,
           },
           HostConfig: {
+            ...(hardwareAcceleration
+              ? {
+                  Devices: [
+                    {
+                      CgroupPermissions: 'rwm',
+                      PathInContainer: this.config.driDevice,
+                      PathOnHost: this.config.driDevice,
+                    },
+                  ],
+                }
+              : {}),
+            Memory: memoryBytes,
+            MemorySwap: memoryBytes,
             Mounts: [
               {
                 Source: this.config.dataVolumeName,
@@ -166,11 +226,13 @@ export class DockerBrowserWorkerDriver implements BrowserWorkerDriver {
               },
             ],
             NetworkMode: this.config.network,
+            NanoCpus: Math.round(this.config.cpus * 1_000_000_000),
+            PidsLimit: this.config.pidsLimit,
             RestartPolicy: {
               Name: 'no',
             },
             SecurityOpt: ['no-new-privileges:true'],
-            ShmSize: 1_073_741_824,
+            ShmSize: sharedMemoryBytes,
           },
           Image: this.config.image,
           Labels: {
@@ -233,6 +295,42 @@ export class DockerBrowserWorkerDriver implements BrowserWorkerDriver {
     }
 
     return status ? 'stopped' : 'missing';
+  }
+
+  async metrics(workerId: string): Promise<BrowserWorkerMetrics> {
+    const response = parseJsonObject(
+      await this.#client.request({
+        path: `/containers/${encodeURIComponent(workerId)}/stats?stream=false&one-shot=true`,
+      }),
+    );
+    const cpu = readObject(response, 'cpu_stats');
+    const previousCpu = readObject(response, 'precpu_stats');
+    const cpuUsage = readObject(cpu ?? {}, 'cpu_usage');
+    const previousCpuUsage = readObject(previousCpu ?? {}, 'cpu_usage');
+    const cpuDelta =
+      (readNumber(cpuUsage, 'total_usage') ?? 0) -
+      (readNumber(previousCpuUsage, 'total_usage') ?? 0);
+    const systemDelta =
+      (readNumber(cpu, 'system_cpu_usage') ?? 0) -
+      (readNumber(previousCpu, 'system_cpu_usage') ?? 0);
+    const onlineCpus =
+      readNumber(cpu, 'online_cpus') ??
+      (Array.isArray(cpuUsage?.percpu_usage) ? cpuUsage.percpu_usage.length : 1);
+    const memory = readObject(response, 'memory_stats');
+    const networks = readObject(response, 'networks');
+    const pids = readObject(response, 'pids_stats');
+
+    return {
+      cpuPercent:
+        cpuDelta > 0 && systemDelta > 0
+          ? (cpuDelta / systemDelta) * onlineCpus * 100
+          : null,
+      memoryBytes: readNumber(memory, 'usage') ?? 0,
+      memoryLimitBytes: readNumber(memory, 'limit') ?? 0,
+      networkReceiveBytes: sumNetworkBytes(networks, 'rx_bytes'),
+      networkTransmitBytes: sumNetworkBytes(networks, 'tx_bytes'),
+      pids: readNumber(pids, 'current') ?? 0,
+    };
   }
 
   getStreamTarget(sessionId: string): URL {

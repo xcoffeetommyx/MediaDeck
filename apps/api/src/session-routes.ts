@@ -5,6 +5,12 @@ import {
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 
+import type { AdministratorAccess } from './administrator-access.js';
+import {
+  clearStreamAccessCookie,
+  sessionTokenFromRequest,
+  setStreamAccessCookie,
+} from './session-access.js';
 import type { SessionManager } from './session-manager.js';
 
 const sessionParametersSchema = z.object({
@@ -14,8 +20,11 @@ const sessionParametersSchema = z.object({
 export function registerSessionRoutes(
   app: FastifyInstance,
   sessions: SessionManager,
+  administrator: AdministratorAccess,
+  secureCookies: boolean,
 ): void {
-  app.get('/api/v1/sessions', (): BrowserSessionListResponse => {
+  app.get('/api/v1/sessions', (request): BrowserSessionListResponse => {
+    administrator.require(request.headers.authorization);
     return {
       sessions: sessions.list(),
     };
@@ -24,26 +33,39 @@ export function registerSessionRoutes(
   app.post('/api/v1/sessions', async (request, reply) => {
     const input = createBrowserSessionRequestSchema.parse(request.body);
     const session = await sessions.start(input);
+    setStreamAccessCookie(
+      reply,
+      session.id,
+      input.accessToken,
+      sessions.capacity().idleTimeoutSeconds,
+      secureCookies,
+    );
     return reply.code(201).send(session);
   });
 
   app.get('/api/v1/sessions/:sessionId', (request) => {
     const { sessionId } = sessionParametersSchema.parse(request.params);
+    sessions.authorize(sessionId, sessionTokenFromRequest(request));
     return sessions.get(sessionId);
   });
 
   app.post('/api/v1/sessions/:sessionId/heartbeat', async (request) => {
     const { sessionId } = sessionParametersSchema.parse(request.params);
+    sessions.authorize(sessionId, sessionTokenFromRequest(request));
     return sessions.heartbeat(sessionId);
   });
 
   app.post('/api/v1/sessions/:sessionId/recover', async (request) => {
     const { sessionId } = sessionParametersSchema.parse(request.params);
+    sessions.authorize(sessionId, sessionTokenFromRequest(request));
     return sessions.recover(sessionId);
   });
 
-  app.post('/api/v1/sessions/:sessionId/stop', async (request) => {
+  app.post('/api/v1/sessions/:sessionId/stop', async (request, reply) => {
     const { sessionId } = sessionParametersSchema.parse(request.params);
-    return sessions.stop(sessionId);
+    sessions.authorize(sessionId, sessionTokenFromRequest(request));
+    const session = await sessions.stop(sessionId);
+    clearStreamAccessCookie(reply, sessionId, secureCookies);
+    return session;
   });
 }

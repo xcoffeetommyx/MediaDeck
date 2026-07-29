@@ -1,10 +1,12 @@
 import { mkdir, rm } from 'node:fs/promises';
 import { isAbsolute, relative, resolve } from 'node:path';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
 
-import type { StoragePaths } from '@mediadeck/config';
+import type { BrowserWorkerConfig, StoragePaths } from '@mediadeck/config';
 import type {
+  BrowserResourceReport,
   BrowserSession,
+  SessionCapacity,
   LaunchMediaApplicationRequest,
   MediaApplicationId,
 } from '@mediadeck/contracts';
@@ -14,7 +16,11 @@ import type {
   BrowserWorkerDriver,
   BrowserWorkerState,
 } from './browser-worker-driver.js';
-import { ConflictError, WorkerUnavailableError } from './domain-errors.js';
+import {
+  ConflictError,
+  SessionUnauthorizedError,
+  WorkerUnavailableError,
+} from './domain-errors.js';
 import { MediaDeckStore, type StoredBrowserSession } from './store.js';
 
 type SessionManagerOptions = {
@@ -27,17 +33,20 @@ type SessionManagerOptions = {
   paths: StoragePaths;
   store: MediaDeckStore;
   workerDriver: BrowserWorkerDriver;
+  workerConfig: BrowserWorkerConfig;
 };
 
 type StartBrowserSessionInput =
   | {
       applicationId?: MediaApplicationId | undefined;
+      accessToken?: string | undefined;
       kind: 'profile';
       profileId: string;
       sessionId?: string | undefined;
     }
   | {
       applicationId?: MediaApplicationId | undefined;
+      accessToken?: string | undefined;
       kind: 'guest';
       sessionId?: string | undefined;
     };
@@ -60,6 +69,10 @@ function toPublicSession(session: StoredBrowserSession): BrowserSession {
   };
 }
 
+function hashAccessToken(token: string): string {
+  return createHash('sha256').update(token, 'utf8').digest('base64url');
+}
+
 export class SessionManager {
   readonly #applications: ApplicationRegistry;
   readonly #healthIntervalMilliseconds: number;
@@ -70,6 +83,7 @@ export class SessionManager {
   readonly #paths: StoragePaths;
   readonly #store: MediaDeckStore;
   readonly #workerDriver: BrowserWorkerDriver;
+  readonly #workerConfig: BrowserWorkerConfig;
   #monitoring = false;
   #timer: NodeJS.Timeout | undefined;
 
@@ -83,6 +97,7 @@ export class SessionManager {
     paths,
     store,
     workerDriver,
+    workerConfig,
   }: SessionManagerOptions) {
     this.#applications = applications;
     this.#healthIntervalMilliseconds = healthIntervalSeconds * 1000;
@@ -93,6 +108,7 @@ export class SessionManager {
     this.#paths = paths;
     this.#store = store;
     this.#workerDriver = workerDriver;
+    this.#workerConfig = workerConfig;
   }
 
   async initialize(): Promise<void> {
@@ -118,6 +134,9 @@ export class SessionManager {
 
     const session = this.#store.createSession(
       {
+        accessTokenHash: hashAccessToken(
+          input.accessToken ?? randomBytes(32).toString('base64url'),
+        ),
         applicationId: application.id,
         createdAt: timestamp,
         id,
@@ -171,6 +190,7 @@ export class SessionManager {
     const requestedSession = this.#store.getSession(input.sessionId);
 
     if (requestedSession) {
+      this.authorize(requestedSession.id, input.accessToken);
       this.assertSessionOwnership(requestedSession, applicationId, input);
       if (activeStatuses.has(requestedSession.status)) {
         return this.heartbeat(requestedSession.id);
@@ -184,6 +204,7 @@ export class SessionManager {
     if (input.kind === 'profile') {
       const active = this.#store.findActiveSessionByProfile(input.profileId);
       if (active) {
+        this.authorize(active.id, input.accessToken);
         this.assertSessionOwnership(active, applicationId, input);
         return this.heartbeat(active.id);
       }
@@ -201,6 +222,86 @@ export class SessionManager {
 
   get(id: string): BrowserSession {
     return toPublicSession(this.#store.requireSession(id));
+  }
+
+  authorize(id: string, accessToken: string | undefined): void {
+    const session = this.#store.getSession(id);
+    const expected = session?.accessTokenHash;
+    if (!expected || !accessToken) {
+      throw new SessionUnauthorizedError();
+    }
+
+    const actualBuffer = Buffer.from(hashAccessToken(accessToken), 'utf8');
+    const expectedBuffer = Buffer.from(expected, 'utf8');
+    if (
+      actualBuffer.length !== expectedBuffer.length ||
+      !timingSafeEqual(actualBuffer, expectedBuffer)
+    ) {
+      throw new SessionUnauthorizedError();
+    }
+  }
+
+  capacity(): SessionCapacity {
+    const activeSessions = this.#store.listActiveSessions().length;
+    const availableSlots = Math.max(this.#maxSessions - activeSessions, 0);
+    return {
+      activeSessions,
+      availableSlots,
+      atCapacity: availableSlots === 0,
+      idleTimeoutSeconds: Math.round(this.#idleTimeoutMilliseconds / 1000),
+      maxSessions: this.#maxSessions,
+    };
+  }
+
+  async resources(): Promise<BrowserResourceReport> {
+    const sampledAt = this.#now().toISOString();
+    const sessions = await Promise.all(
+      this.#store.listActiveSessions().map(async (session) => {
+        const metrics = session.workerId
+          ? await this.#workerDriver.metrics(session.workerId).catch(() => null)
+          : null;
+        return {
+          cpuPercent: metrics?.cpuPercent ?? null,
+          gpu: {
+            device:
+              this.#workerConfig.gpuMode === 'dri'
+                ? this.#workerConfig.driDevice
+                : null,
+            mode: this.#workerConfig.gpuMode,
+          },
+          memoryBytes: metrics?.memoryBytes ?? 0,
+          memoryLimitBytes:
+            metrics?.memoryLimitBytes ??
+            this.#workerConfig.memoryMegabytes * 1024 * 1024,
+          networkReceiveBytes: metrics?.networkReceiveBytes ?? 0,
+          networkTransmitBytes: metrics?.networkTransmitBytes ?? 0,
+          pids: metrics?.pids ?? 0,
+          profileId: session.profileId,
+          sampledAt,
+          sessionId: session.id,
+          status: session.status,
+          videoBitrateMbps: this.#workerConfig.videoBitrate,
+        };
+      }),
+    );
+
+    return {
+      capacity: this.capacity(),
+      limitsPerWorker: {
+        cpus: this.#workerConfig.cpus,
+        memoryBytes: this.#workerConfig.memoryMegabytes * 1024 * 1024,
+        pids: this.#workerConfig.pidsLimit,
+        sharedMemoryBytes: this.#workerConfig.sharedMemoryMegabytes * 1024 * 1024,
+        videoBitrateMbps: this.#workerConfig.videoBitrate,
+      },
+      sampledAt,
+      sessions,
+    };
+  }
+
+  getAuthorizedStreamTarget(id: string, accessToken: string | undefined): URL {
+    this.authorize(id, accessToken);
+    return this.getStreamTarget(id);
   }
 
   getStreamTarget(id: string): URL {
@@ -382,6 +483,10 @@ export class SessionManager {
 
     for (const session of activeSessions) {
       try {
+        if (!session.accessTokenHash) {
+          await this.stop(session.id);
+          continue;
+        }
         if (session.status === 'stopping') {
           await this.stop(session.id);
           continue;

@@ -3,6 +3,7 @@ import type {
   AdministratorStatus,
   BackupListResponse,
   BackupSummary,
+  BrowserResourceReport,
   BrowserWorkerHealthResponse,
   OperationalDiagnostics,
   OperationEventListResponse,
@@ -62,6 +63,7 @@ export function SettingsView({
   const [diagnostics, setDiagnostics] = useState<OperationalDiagnostics | null>(null);
   const [backups, setBackups] = useState<BackupSummary[]>([]);
   const [events, setEvents] = useState<OperationEventListResponse['events']>([]);
+  const [resources, setResources] = useState<BrowserResourceReport | null>(null);
   const [newPin, setNewPin] = useState('');
   const [busy, setBusy] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -80,12 +82,15 @@ export function SettingsView({
     setDiagnostics(nextDiagnostics);
     setBackups(nextBackups.backups);
     if (nextAdministrator.authenticated) {
-      const log = await requestJson<OperationEventListResponse>(
-        '/api/v1/operations/logs?limit=8',
-      );
+      const [log, resourceReport] = await Promise.all([
+        requestJson<OperationEventListResponse>('/api/v1/operations/logs?limit=8'),
+        requestJson<BrowserResourceReport>('/api/v1/operations/resources'),
+      ]);
       setEvents(log.events);
+      setResources(resourceReport);
     } else {
       setEvents([]);
+      setResources(null);
     }
   }, []);
 
@@ -197,9 +202,61 @@ export function SettingsView({
           tone={diagnostics?.database.healthy ? 'good' : 'neutral'}
           value={diagnostics?.database.healthy ? 'Healthy' : 'Checking'}
         />
+        <StatusCard
+          detail={
+            resources
+              ? `${resources.capacity.activeSessions} of ${resources.capacity.maxSessions} active · ${resources.capacity.availableSlots} available`
+              : 'Unlock to inspect stream capacity.'
+          }
+          label="Stream capacity"
+          tone={resources && !resources.capacity.atCapacity ? 'good' : 'neutral'}
+          value={resources?.capacity.atCapacity ? 'Full' : 'Available'}
+        />
       </div>
 
       <div className="operations-grid">
+        <OperationCard
+          badge={
+            resources
+              ? `${resources.limitsPerWorker.cpus} CPU · ${formatBytes(resources.limitsPerWorker.memoryBytes)} each`
+              : 'Administrator'
+          }
+          eyebrow="Concurrency"
+          title="Active stream resources"
+          wide
+        >
+          {!resources ? (
+            <p className="operation-empty">
+              Unlock administrator controls to view per-session resource usage.
+            </p>
+          ) : resources.sessions.length === 0 ? (
+            <p className="operation-empty">
+              No streams are active. Limits are ready for the next Firefox worker.
+            </p>
+          ) : (
+            resources.sessions.map((sample, index) => (
+              <SettingRow
+                action={
+                  <span className="stage-badge">
+                    {sample.gpu.mode === 'dri' ? 'GPU' : 'Software'}
+                  </span>
+                }
+                detail={`${sample.cpuPercent === null ? 'CPU sampling' : `${sample.cpuPercent.toFixed(1)}% CPU`} · ${formatBytes(sample.memoryBytes)} memory · ${formatBytes(sample.networkReceiveBytes)} down / ${formatBytes(sample.networkTransmitBytes)} up · ${sample.pids} processes`}
+                key={sample.sessionId}
+                title={`Stream ${index + 1} · ${sample.status}`}
+              />
+            ))
+          )}
+          {resources ? (
+            <p className="operation-help">
+              Each worker is capped at {resources.limitsPerWorker.cpus} CPU,{' '}
+              {formatBytes(resources.limitsPerWorker.memoryBytes)} memory,{' '}
+              {resources.limitsPerWorker.pids} processes, and{' '}
+              {resources.limitsPerWorker.videoBitrateMbps} Mbps encoded video.
+            </p>
+          ) : null}
+        </OperationCard>
+
         <OperationCard
           badge={pinProtected ? 'PIN protected' : 'Tailnet only'}
           eyebrow="Security"

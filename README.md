@@ -56,6 +56,10 @@ Stages 1 through 6 establish:
 - Consistent SQLite/profile backups and restart-applied restores
 - HTTPS manifest checks and digest-pinned, backup-first update approval
 - A headless Linux and private Tailscale Serve operations runbook
+- Concurrent workers for different profiles with bounded host capacity
+- Per-session API, HTTP stream, and WebSocket authorization
+- Per-worker CPU, memory, PID, GPU-mode, and bandwidth observability
+- Multi-session failure isolation and independent crash recovery
 
 ## Quick Start
 
@@ -97,3 +101,5 @@ docker compose -f compose.yaml -f compose.sessions.yaml up --build -d
 - [Stage 3 profiles and sessions report](docs/stage-3-profiles-sessions.md)
 - [Stage 4 controller shell report](docs/stage-4-controller-shell.md)
 - [Stage 5 YouTube application report](docs/stage-5-youtube-application.md)
+- [Stage 6 operations report](docs/stage-6-operations.md)
+- [Stage 7 concurrent sessions report](docs/stage-7-concurrent-sessions.md)

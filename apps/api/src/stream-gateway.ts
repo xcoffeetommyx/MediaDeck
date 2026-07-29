@@ -6,6 +6,7 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 
 import { DomainError } from './domain-errors.js';
+import { streamTokenFromRequest, stripStreamAccessCookies } from './session-access.js';
 import type { SessionManager } from './session-manager.js';
 
 const sessionIdSchema = z.uuid();
@@ -32,6 +33,12 @@ function createUpstreamHeaders(
   }
 
   headers.host = target.host;
+  const cookie = stripStreamAccessCookies(request.headers.cookie);
+  if (cookie) {
+    headers.cookie = cookie;
+  } else {
+    delete headers.cookie;
+  }
   headers['x-forwarded-host'] = request.headers.host;
   headers['x-forwarded-proto'] = request.headers['x-forwarded-proto'] ?? 'http';
   return headers;
@@ -145,7 +152,14 @@ export function registerStreamGateway(
   app.route({
     handler: (request, reply) => {
       const parameters = z.object({ sessionId: z.uuid() }).parse(request.params);
-      proxyHttpRequest(request, reply, sessions.getStreamTarget(parameters.sessionId));
+      proxyHttpRequest(
+        request,
+        reply,
+        sessions.getAuthorizedStreamTarget(
+          parameters.sessionId,
+          streamTokenFromRequest(request.raw, parameters.sessionId),
+        ),
+      );
     },
     method: ['GET', 'HEAD'],
     url: '/stream/:sessionId/*',
@@ -164,7 +178,15 @@ export function registerStreamGateway(
 
     try {
       const sessionId = sessionIdSchema.parse(match[1]);
-      proxyWebSocket(request, socket, head, sessions.getStreamTarget(sessionId));
+      proxyWebSocket(
+        request,
+        socket,
+        head,
+        sessions.getAuthorizedStreamTarget(
+          sessionId,
+          streamTokenFromRequest(request, sessionId),
+        ),
+      );
     } catch (error) {
       const statusCode = error instanceof DomainError ? error.statusCode : 400;
       writeUpgradeResponse(

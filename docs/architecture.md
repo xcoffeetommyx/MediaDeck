@@ -76,6 +76,15 @@ enter the video-stream proxy. That keeps operations traffic off the
 latency-sensitive streaming path and leaves worker capacity replaceable for
 Stage 7.
 
+Stage 7 activates the concurrent form of this topology. SQLite atomically
+enforces both the global worker ceiling and one active mount per profile.
+Every session has an independent credential digest. Lifecycle APIs authorize
+with a session header; the HTTP/WebSocket gateway authorizes with an HttpOnly
+cookie scoped to the opaque stream path. Each worker receives Docker CPU,
+memory, PID, and shared-memory limits, while resource samples stay behind the
+administrator boundary. Failure recovery operates per session and never
+replaces a healthy sibling worker.
+
 See [Architecture Decisions](architecture-decisions.md) for the accepted
 constraints and [Implementation Plan](implementation-plan.md) for delivery
 stages.

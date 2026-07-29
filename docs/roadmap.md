@@ -13,6 +13,7 @@
 - Settings
 - Auto updates
 - Crash recovery
+- Concurrent profile streams with bounded worker resources
 
 ## v1.1
 

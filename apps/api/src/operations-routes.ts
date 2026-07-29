@@ -11,6 +11,7 @@ import type { AdministratorAccess } from './administrator-access.js';
 import type { BackupManager } from './backup-manager.js';
 import type { OperationsManager } from './operations.js';
 import type { SettingsManager } from './settings-manager.js';
+import type { SessionManager } from './session-manager.js';
 import type { UpdateManager } from './update-manager.js';
 
 const backupParametersSchema = z.object({
@@ -31,11 +32,13 @@ export function registerOperationsRoutes(
     administrator: AdministratorAccess;
     backups: BackupManager;
     operations: OperationsManager;
+    sessions: SessionManager;
     settings: SettingsManager;
     updates: UpdateManager;
   },
 ): void {
-  const { administrator, backups, operations, settings, updates } = dependencies;
+  const { administrator, backups, operations, sessions, settings, updates } =
+    dependencies;
 
   app.get('/api/v1/admin/status', (request) =>
     administrator.getStatus(authorization(request)),
@@ -71,6 +74,11 @@ export function registerOperationsRoutes(
     administrator.require(authorization(request));
     const { limit } = logQuerySchema.parse(request.query);
     return operations.logs(limit);
+  });
+
+  app.get('/api/v1/operations/resources', (request) => {
+    administrator.require(authorization(request));
+    return sessions.resources();
   });
 
   app.post('/api/v1/operations/reconcile', (request) => {

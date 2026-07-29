@@ -46,10 +46,11 @@ MediaDeck creates a worker only when a session is requested. Each worker:
 - runs Firefox 153 in the pinned LinuxServer Selkies image
 - uses x264 software encoding by default
 - mounts only its persistent profile or temporary Guest subdirectory
-- disables the microphone, clipboard, file transfer, command execution,
-  sharing, and the image's nested Docker daemon
+- disables the microphone, clipboard, command execution, sharing, and the
+  image's nested Docker daemon; file transfer is download-only
 - has no host-published port
 - is labeled and named by an opaque session UUID
+- has explicit CPU, memory, PID, and shared-memory ceilings
 
 The application talks to the local Docker Engine over its Unix socket. Access
 to that socket is equivalent to administrative control of the Docker host.
@@ -72,6 +73,7 @@ Profiles:
 
 Sessions:
 
+- `GET /api/v1/capacity`
 - `GET /api/v1/sessions`
 - `POST /api/v1/sessions`
 - `GET /api/v1/sessions/:sessionId`
@@ -93,6 +95,7 @@ Operations:
 - `GET/PATCH /api/v1/settings`
 - `GET /api/v1/operations/diagnostics`
 - `GET /api/v1/operations/logs`
+- `GET /api/v1/operations/resources`
 - `POST /api/v1/operations/reconcile`
 - `GET/POST /api/v1/backups`
 - `DELETE /api/v1/backups/:backupId`
@@ -106,6 +109,15 @@ Active session streams are available beneath the session-scoped
 traffic to the isolated worker. Public responses expose the opaque session ID,
 application ID, lifecycle status, and stream path, never the Docker container
 ID, internal address, or storage path.
+
+Launch requests include a random session access token. Lifecycle requests must
+send that same value in `X-MediaDeck-Session-Token`. The controller handles
+this automatically and keeps the token in tab-scoped `sessionStorage`.
+Successful launch sets an HttpOnly cookie scoped to the stream path so HTTP
+assets and WebSocket upgrades authenticate without a token in the URL.
+Production Compose also marks this cookie Secure. Set
+`SESSION_COOKIE_SECURE=false` only for direct local HTTP development; the
+headless deployment keeps it enabled behind Tailscale Serve HTTPS.
 
 ## Tailscale Serve
 
@@ -148,16 +160,37 @@ Common settings:
 | `MEDIADECK_UPDATE_MANIFEST_URL` | unset             | HTTPS release manifest; empty disables update checks     |
 | `APP_VERSION`                   | `0.1.0`           | Version reported by health/config endpoints              |
 | `LOG_LEVEL`                     | `info`            | Structured application log level                         |
+| `SESSION_COOKIE_SECURE`         | `true`            | HTTPS-only stream authorization cookie                   |
 | `TRUST_PROXY`                   | `false`           | Fastify proxy trust; enable only for a verified topology |
 
 Browser-worker settings are listed in `.env.example`. Keep
 `BROWSER_VIDEO_BITRATE` and `BROWSER_FRAMERATE` conservative on small hosts.
-The optional `compose.browser-gpu.yaml` override is Linux-only and currently
-targets an Intel/AMD render node; NVIDIA requires a host-specific design.
+For production session workers, `BROWSER_WORKER_GPU_MODE=dri` is Linux-only and
+currently targets an Intel/AMD render node; NVIDIA requires a host-specific
+design. `compose.browser-gpu.yaml` remains only for the Stage 2 diagnostic
+worker and must not be combined with `compose.sessions.yaml`.
 
 `MAX_BROWSER_SESSIONS` defaults to `1`.
 `BROWSER_SESSION_IDLE_TIMEOUT_SECONDS` defaults to `1800`; clients keep an
 active session alive through the heartbeat endpoint.
+
+For concurrent profiles, size the host first and then raise
+`MAX_BROWSER_SESSIONS`. The default per-worker ceilings are:
+
+| Variable                    | Default               | Purpose                       |
+| --------------------------- | --------------------- | ----------------------------- |
+| `BROWSER_WORKER_CPUS`       | `2`                   | Maximum CPU cores per worker  |
+| `BROWSER_WORKER_MEMORY_MB`  | `2048`                | Memory and total memory+swap  |
+| `BROWSER_WORKER_PIDS_LIMIT` | `512`                 | Maximum worker process count  |
+| `BROWSER_WORKER_SHM_MB`     | `1024`                | Firefox shared-memory size    |
+| `BROWSER_WORKER_GPU_MODE`   | `software`            | `software` or Linux `dri`     |
+| `BROWSER_DRI_DEVICE`        | `/dev/dri/renderD128` | Intel/AMD render device       |
+| `BROWSER_VIDEO_BITRATE`     | `12`                  | Encoded video ceiling in Mbps |
+
+Capacity is visible before launch. Settings shows protected per-session CPU,
+memory, process, network, GPU-mode, and encoded-bandwidth data. Network values
+are cumulative Docker counters; GPU reporting identifies configured mode and
+device rather than vendor-specific utilization.
 
 ## Persistent Data
 

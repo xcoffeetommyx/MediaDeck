@@ -42,9 +42,15 @@ const serverEnvironmentSchema = z.object({
     .default(1800),
   BROWSER_START_URL: httpUrl.default('https://www.youtube.com/'),
   BROWSER_VIDEO_BITRATE: z.coerce.number().int().min(1).max(100).default(12),
+  BROWSER_WORKER_CPUS: z.coerce.number().min(0.25).max(16).default(2),
   BROWSER_WORKER_DRIVER: z.enum(['disabled', 'docker']).default('disabled'),
+  BROWSER_WORKER_GPU_MODE: z.enum(['software', 'dri']).default('software'),
   BROWSER_WORKER_IMAGE: z.string().min(1).default(browserWorkerImage),
+  BROWSER_WORKER_MEMORY_MB: z.coerce.number().int().min(512).max(32_768).default(2048),
   BROWSER_WORKER_NETWORK: z.string().min(1).default('mediadeck_default'),
+  BROWSER_WORKER_PIDS_LIMIT: z.coerce.number().int().min(64).max(4096).default(512),
+  BROWSER_WORKER_SHM_MB: z.coerce.number().int().min(256).max(4096).default(1024),
+  BROWSER_DRI_DEVICE: z.string().min(1).default('/dev/dri/renderD128'),
   BROWSER_WORKER_URL: httpUrl.optional(),
   DATA_DIR: z.string().min(1).default('./.data'),
   DOCKER_SOCKET_PATH: z.string().min(1).default('/var/run/docker.sock'),
@@ -60,22 +66,29 @@ const serverEnvironmentSchema = z.object({
   ),
   PORT: z.coerce.number().int().min(1).max(65_535).default(3000),
   PUBLIC_DIR: z.string().min(1).optional(),
+  SESSION_COOKIE_SECURE: booleanFromEnvironment,
   TRUST_PROXY: booleanFromEnvironment,
   TZ: z.string().min(1).default('Etc/UTC'),
 });
 
 export type BrowserWorkerConfig = {
+  cpus: number;
   dataVolumeName: string;
+  driDevice: string;
   dockerSocketPath: string;
   driver: z.infer<typeof serverEnvironmentSchema>['BROWSER_WORKER_DRIVER'];
   framerate: number;
+  gpuMode: z.infer<typeof serverEnvironmentSchema>['BROWSER_WORKER_GPU_MODE'];
   healthIntervalSeconds: number;
   idleTimeoutSeconds: number;
   image: string;
   maxSessions: number;
+  memoryMegabytes: number;
   network: string;
   pgid: number;
+  pidsLimit: number;
   puid: number;
+  sharedMemoryMegabytes: number;
   startUrl: string;
   timezone: string;
   videoBitrate: number;
@@ -91,6 +104,7 @@ export type ServerConfig = {
   nodeEnvironment: z.infer<typeof serverEnvironmentSchema>['NODE_ENV'];
   port: number;
   publicDirectory?: string;
+  sessionCookieSecure: boolean;
   trustProxy: boolean;
   updateManifestUrl?: string;
 };
@@ -115,17 +129,23 @@ export function loadServerConfig(
   return {
     appVersion: parsed.APP_VERSION,
     browserWorker: {
+      cpus: parsed.BROWSER_WORKER_CPUS,
       dataVolumeName: parsed.BROWSER_DATA_VOLUME,
+      driDevice: parsed.BROWSER_DRI_DEVICE,
       dockerSocketPath: parsed.DOCKER_SOCKET_PATH,
       driver: parsed.BROWSER_WORKER_DRIVER,
       framerate: parsed.BROWSER_FRAMERATE,
+      gpuMode: parsed.BROWSER_WORKER_GPU_MODE,
       healthIntervalSeconds: parsed.BROWSER_SESSION_HEALTH_INTERVAL_SECONDS,
       idleTimeoutSeconds: parsed.BROWSER_SESSION_IDLE_TIMEOUT_SECONDS,
       image: parsed.BROWSER_WORKER_IMAGE,
       maxSessions: parsed.MAX_BROWSER_SESSIONS,
+      memoryMegabytes: parsed.BROWSER_WORKER_MEMORY_MB,
       network: parsed.BROWSER_WORKER_NETWORK,
       pgid: parsed.BROWSER_PGID,
+      pidsLimit: parsed.BROWSER_WORKER_PIDS_LIMIT,
       puid: parsed.BROWSER_PUID,
+      sharedMemoryMegabytes: parsed.BROWSER_WORKER_SHM_MB,
       startUrl: parsed.BROWSER_START_URL,
       timezone: parsed.TZ,
       videoBitrate: parsed.BROWSER_VIDEO_BITRATE,
@@ -139,6 +159,7 @@ export function loadServerConfig(
     nodeEnvironment: parsed.NODE_ENV,
     port: parsed.PORT,
     ...(publicDirectory ? { publicDirectory } : {}),
+    sessionCookieSecure: parsed.SESSION_COOKIE_SECURE,
     trustProxy: parsed.TRUST_PROXY,
     ...(parsed.MEDIADECK_UPDATE_MANIFEST_URL
       ? { updateManifestUrl: parsed.MEDIADECK_UPDATE_MANIFEST_URL }

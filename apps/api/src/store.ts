@@ -22,6 +22,7 @@ type ProfileRow = {
 };
 
 type SessionRow = {
+  access_token_hash: string | null;
   application_id: MediaApplicationId;
   created_at: string;
   ended_at: string | null;
@@ -51,11 +52,13 @@ export type StoredAdministratorSecurity = {
 };
 
 export type StoredBrowserSession = BrowserSession & {
+  accessTokenHash: string | null;
   storagePath: string;
   workerId: string | null;
 };
 
 export type NewStoredBrowserSession = {
+  accessTokenHash: string;
   applicationId: MediaApplicationId;
   createdAt: string;
   id: string;
@@ -78,6 +81,7 @@ function mapProfile(row: ProfileRow): Profile {
 
 function mapSession(row: SessionRow): StoredBrowserSession {
   return {
+    accessTokenHash: row.access_token_hash,
     applicationId: row.application_id,
     createdAt: row.created_at,
     endedAt: row.ended_at,
@@ -130,6 +134,7 @@ export class MediaDeckStore {
 
       CREATE TABLE IF NOT EXISTS browser_sessions (
         id TEXT PRIMARY KEY,
+        access_token_hash TEXT,
         application_id TEXT NOT NULL DEFAULT 'youtube',
         kind TEXT NOT NULL CHECK(kind IN ('profile', 'guest')),
         profile_id TEXT REFERENCES profiles(id) ON DELETE RESTRICT,
@@ -198,8 +203,13 @@ export class MediaDeckStore {
         "ALTER TABLE browser_sessions ADD COLUMN application_id TEXT NOT NULL DEFAULT 'youtube'",
       );
     }
+    if (!sessionColumns.some((column) => column.name === 'access_token_hash')) {
+      this.#database.exec(
+        'ALTER TABLE browser_sessions ADD COLUMN access_token_hash TEXT',
+      );
+    }
 
-    this.#database.pragma('user_version = 4');
+    this.#database.pragma('user_version = 5');
   }
 
   async backupDatabase(destination: string): Promise<void> {
@@ -480,13 +490,15 @@ export class MediaDeckStore {
         .prepare(
           `
             INSERT INTO browser_sessions (
-              id, application_id, kind, profile_id, status, storage_path, worker_id,
+              id, access_token_hash, application_id, kind, profile_id, status,
+              storage_path, worker_id,
               failure_reason, created_at, updated_at, last_seen_at, ended_at
-            ) VALUES (?, ?, ?, ?, 'starting', ?, NULL, NULL, ?, ?, ?, NULL)
+            ) VALUES (?, ?, ?, ?, ?, 'starting', ?, NULL, NULL, ?, ?, ?, NULL)
           `,
         )
         .run(
           session.id,
+          session.accessTokenHash,
           session.applicationId,
           session.kind,
           session.profileId,

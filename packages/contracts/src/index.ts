@@ -113,6 +113,10 @@ export const browserSessionStatusSchema = z.enum([
   'failed',
 ]);
 
+export const sessionAccessTokenSchema = z
+  .string()
+  .regex(/^[A-Za-z0-9_-]{43,128}$/, 'Session access token is invalid');
+
 export const browserSessionSchema = z.object({
   applicationId: mediaApplicationIdSchema,
   createdAt: z.iso.datetime(),
@@ -133,12 +137,14 @@ export const browserSessionListResponseSchema = z.object({
 
 export const createBrowserSessionRequestSchema = z.discriminatedUnion('kind', [
   z.object({
+    accessToken: sessionAccessTokenSchema,
     applicationId: mediaApplicationIdSchema.default('youtube'),
     kind: z.literal('profile'),
     profileId: z.uuid(),
     sessionId: z.uuid().optional(),
   }),
   z.object({
+    accessToken: sessionAccessTokenSchema,
     applicationId: mediaApplicationIdSchema.default('youtube'),
     kind: z.literal('guest'),
     sessionId: z.uuid().optional(),
@@ -147,11 +153,13 @@ export const createBrowserSessionRequestSchema = z.discriminatedUnion('kind', [
 
 export const launchMediaApplicationRequestSchema = z.discriminatedUnion('kind', [
   z.object({
+    accessToken: sessionAccessTokenSchema,
     kind: z.literal('profile'),
     profileId: z.uuid(),
     sessionId: z.uuid(),
   }),
   z.object({
+    accessToken: sessionAccessTokenSchema,
     kind: z.literal('guest'),
     sessionId: z.uuid(),
   }),
@@ -169,6 +177,51 @@ export type CreateBrowserSessionRequest = z.infer<
 export type LaunchMediaApplicationRequest = z.infer<
   typeof launchMediaApplicationRequestSchema
 >;
+
+export const sessionCapacitySchema = z.object({
+  activeSessions: z.number().int().nonnegative(),
+  availableSlots: z.number().int().nonnegative(),
+  atCapacity: z.boolean(),
+  idleTimeoutSeconds: z.number().int().positive(),
+  maxSessions: z.number().int().positive(),
+});
+
+export const browserWorkerResourceSampleSchema = z.object({
+  cpuPercent: z.number().nonnegative().nullable(),
+  gpu: z.object({
+    device: z.string().nullable(),
+    mode: z.enum(['software', 'dri']),
+  }),
+  memoryBytes: z.number().int().nonnegative(),
+  memoryLimitBytes: z.number().int().nonnegative(),
+  networkReceiveBytes: z.number().int().nonnegative(),
+  networkTransmitBytes: z.number().int().nonnegative(),
+  pids: z.number().int().nonnegative(),
+  profileId: z.uuid().nullable(),
+  sampledAt: z.iso.datetime(),
+  sessionId: z.uuid(),
+  status: browserSessionStatusSchema,
+  videoBitrateMbps: z.number().positive(),
+});
+
+export const browserResourceReportSchema = z.object({
+  capacity: sessionCapacitySchema,
+  limitsPerWorker: z.object({
+    cpus: z.number().positive(),
+    memoryBytes: z.number().int().positive(),
+    pids: z.number().int().positive(),
+    sharedMemoryBytes: z.number().int().positive(),
+    videoBitrateMbps: z.number().positive(),
+  }),
+  sampledAt: z.iso.datetime(),
+  sessions: z.array(browserWorkerResourceSampleSchema),
+});
+
+export type SessionCapacity = z.infer<typeof sessionCapacitySchema>;
+export type BrowserWorkerResourceSample = z.infer<
+  typeof browserWorkerResourceSampleSchema
+>;
+export type BrowserResourceReport = z.infer<typeof browserResourceReportSchema>;
 
 export const administratorPinSchema = z
   .string()

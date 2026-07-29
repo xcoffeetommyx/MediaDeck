@@ -38,6 +38,17 @@ class FakeBrowserWorkerDriver implements BrowserWorkerDriver {
     return Promise.resolve(true);
   }
 
+  metrics() {
+    return Promise.resolve({
+      cpuPercent: 12.5,
+      memoryBytes: 256 * 1024 * 1024,
+      memoryLimitBytes: 2048 * 1024 * 1024,
+      networkReceiveBytes: 1024,
+      networkTransmitBytes: 2048,
+      pids: 42,
+    });
+  }
+
   start(input: StartBrowserWorkerInput): Promise<{ workerId: string }> {
     this.starts.push(input);
     const workerId = `worker-${this.starts.length}`;
@@ -85,6 +96,28 @@ function createManager(maxSessions = 1): SessionManager {
     paths,
     store,
     workerDriver: driver,
+    workerConfig: {
+      cpus: 2,
+      dataVolumeName: 'mediadeck-test',
+      dockerSocketPath: '/var/run/docker.sock',
+      driver: 'docker',
+      driDevice: '/dev/dri/renderD128',
+      framerate: 60,
+      gpuMode: 'software',
+      healthIntervalSeconds: 300,
+      idleTimeoutSeconds: 1800,
+      image: 'test-image',
+      maxSessions,
+      memoryMegabytes: 2048,
+      network: 'test-network',
+      pgid: 1000,
+      pidsLimit: 512,
+      puid: 1000,
+      sharedMemoryMegabytes: 1024,
+      startUrl: 'https://www.youtube.com/',
+      timezone: 'Etc/UTC',
+      videoBitrate: 12,
+    },
   });
 }
 
@@ -124,6 +157,59 @@ describe('session manager', () => {
     await sessions.start({ kind: 'profile', profileId: profile.id });
 
     await expect(sessions.start({ kind: 'guest' })).rejects.toThrow(CapacityError);
+
+    await sessions.shutdown();
+  });
+
+  it('recovers one failed worker without interrupting another active profile', async () => {
+    const firstProfile = await profiles.create({ name: 'First isolated' });
+    const secondProfile = await profiles.create({ name: 'Second isolated' });
+    const sessions = createManager(2);
+    const first = await sessions.start({
+      kind: 'profile',
+      profileId: firstProfile.id,
+    });
+    const second = await sessions.start({
+      kind: 'profile',
+      profileId: secondProfile.id,
+    });
+    const firstWorker = store.requireSession(first.id).workerId!;
+    const secondWorker = store.requireSession(second.id).workerId!;
+
+    driver.states.delete(firstWorker);
+    await sessions.heartbeat(first.id);
+
+    expect(store.requireSession(first.id).workerId).not.toBe(firstWorker);
+    expect(store.requireSession(second.id).workerId).toBe(secondWorker);
+    expect(driver.states.get(secondWorker)).toBe('running');
+    expect(sessions.get(second.id).status).toBe('starting');
+
+    await sessions.shutdown();
+  });
+
+  it('reports capacity, configured ceilings, and per-worker usage', async () => {
+    const sessions = createManager(2);
+    const guest = await sessions.start({ kind: 'guest' });
+    const report = await sessions.resources();
+
+    expect(sessions.capacity()).toMatchObject({
+      activeSessions: 1,
+      availableSlots: 1,
+      atCapacity: false,
+      maxSessions: 2,
+    });
+    expect(report.limitsPerWorker).toMatchObject({
+      cpus: 2,
+      memoryBytes: 2048 * 1024 * 1024,
+      pids: 512,
+      videoBitrateMbps: 12,
+    });
+    expect(report.sessions).toEqual([
+      expect.objectContaining({
+        cpuPercent: 12.5,
+        sessionId: guest.id,
+      }),
+    ]);
 
     await sessions.shutdown();
   });
@@ -239,11 +325,13 @@ describe('session manager', () => {
     const sessionId = '2abfc294-b100-48e1-93ad-bd34718e9a97';
 
     const launched = await sessions.launch('youtube', {
+      accessToken: 'a'.repeat(43),
       kind: 'profile',
       profileId: profile.id,
       sessionId,
     });
     const resumed = await sessions.launch('youtube', {
+      accessToken: 'a'.repeat(43),
       kind: 'profile',
       profileId: profile.id,
       sessionId,
@@ -262,6 +350,25 @@ describe('session manager', () => {
     });
     expect(sessions.getStreamTarget(sessionId).href).toBe(
       `http://worker-${sessionId}:3000/`,
+    );
+
+    await sessions.shutdown();
+  });
+
+  it('does not allow one session token to authorize another session', async () => {
+    const sessions = createManager(2);
+    const first = await sessions.start({
+      accessToken: 'a'.repeat(43),
+      kind: 'guest',
+    });
+    const second = await sessions.start({
+      accessToken: 'b'.repeat(43),
+      kind: 'guest',
+    });
+
+    expect(() => sessions.authorize(first.id, 'a'.repeat(43))).not.toThrow();
+    expect(() => sessions.authorize(second.id, 'a'.repeat(43))).toThrow(
+      'Valid authorization',
     );
 
     await sessions.shutdown();

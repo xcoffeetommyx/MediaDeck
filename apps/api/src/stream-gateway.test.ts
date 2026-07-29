@@ -26,6 +26,17 @@ class GatewayWorkerDriver implements BrowserWorkerDriver {
     return Promise.resolve(true);
   }
 
+  metrics() {
+    return Promise.resolve({
+      cpuPercent: 0,
+      memoryBytes: 0,
+      memoryLimitBytes: 0,
+      networkReceiveBytes: 0,
+      networkTransmitBytes: 0,
+      pids: 0,
+    });
+  }
+
   start(): Promise<{ workerId: string }> {
     return Promise.resolve({ workerId: 'gateway-worker' });
   }
@@ -72,17 +83,23 @@ function createConfig(): ServerConfig {
   return {
     appVersion: '0.1.0-test',
     browserWorker: {
+      cpus: 2,
       dataVolumeName: 'mediadeck-test',
+      driDevice: '/dev/dri/renderD128',
       dockerSocketPath: '/var/run/docker.sock',
       driver: 'disabled',
       framerate: 60,
+      gpuMode: 'software',
       healthIntervalSeconds: 300,
       idleTimeoutSeconds: 1800,
       image: 'test-image',
       maxSessions: 1,
+      memoryMegabytes: 2048,
       network: 'test-network',
       pgid: 1000,
+      pidsLimit: 512,
       puid: 1000,
+      sharedMemoryMegabytes: 1024,
       startUrl: 'https://www.youtube.com/',
       timezone: 'Etc/UTC',
       videoBitrate: 12,
@@ -92,6 +109,7 @@ function createConfig(): ServerConfig {
     logLevel: 'silent',
     nodeEnvironment: 'test',
     port: 3000,
+    sessionCookieSecure: false,
     trustProxy: false,
   };
 }
@@ -108,14 +126,26 @@ describe('session stream gateway', () => {
     const launchResponse = await app.inject({
       method: 'POST',
       payload: {
+        accessToken: 'a'.repeat(43),
         kind: 'guest',
         sessionId,
       },
       url: '/api/v1/applications/youtube/launch',
     });
     const session = browserSessionSchema.parse(launchResponse.json());
+    const cookie = launchResponse.headers['set-cookie'];
+    if (typeof cookie !== 'string') {
+      throw new Error('Launch did not issue a stream access cookie');
+    }
 
-    const httpResponse = await fetch(`${address}${session.streamUrl}assets/client.js`);
+    const unauthorizedResponse = await fetch(
+      `${address}${session.streamUrl}assets/client.js`,
+    );
+    expect(unauthorizedResponse.status).toBe(401);
+
+    const httpResponse = await fetch(`${address}${session.streamUrl}assets/client.js`, {
+      headers: { cookie: cookie.split(';', 1)[0]! },
+    });
     expect(await httpResponse.text()).toBe(
       `proxied:${session.streamUrl}assets/client.js`,
     );
@@ -130,7 +160,7 @@ describe('session stream gateway', () => {
       socket.setEncoding('utf8');
       socket.on('connect', () => {
         socket.write(
-          `GET ${session.streamUrl}websockets HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: Upgrade\r\nUpgrade: websocket\r\nSec-WebSocket-Key: dGVzdA==\r\nSec-WebSocket-Version: 13\r\n\r\n`,
+          `GET ${session.streamUrl}websockets HTTP/1.1\r\nHost: 127.0.0.1\r\nCookie: ${cookie.split(';', 1)[0]!}\r\nConnection: Upgrade\r\nUpgrade: websocket\r\nSec-WebSocket-Key: dGVzdA==\r\nSec-WebSocket-Version: 13\r\n\r\n`,
         );
       });
       socket.on('data', (chunk: string) => {

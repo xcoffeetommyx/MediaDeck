@@ -39,6 +39,16 @@ export class UnauthorizedError extends DomainError {
   }
 }
 
+export class SessionUnauthorizedError extends DomainError {
+  constructor() {
+    super(
+      'Valid authorization for this browser session is required',
+      'session_authorization_required',
+      401,
+    );
+  }
+}
+
 export class RateLimitError extends DomainError {
   constructor(message: string) {
     super(message, 'rate_limit_exceeded', 429);

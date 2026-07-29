@@ -39,7 +39,16 @@ function requestUrl(input: RequestInfo | URL): string {
   return input instanceof URL ? input.href : input.url;
 }
 
-function mockApi(profiles = [profile]) {
+function mockApi(
+  profiles = [profile],
+  capacity = {
+    activeSessions: 0,
+    availableSlots: 1,
+    atCapacity: false,
+    idleTimeoutSeconds: 1800,
+    maxSessions: 1,
+  },
+) {
   const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
     const url = requestUrl(input);
     if (url.endsWith('/api/v1/health')) {
@@ -69,6 +78,9 @@ function mockApi(profiles = [profile]) {
           transport: { mode: 'websocket', provider: 'selkies' },
         }),
       );
+    }
+    if (url.endsWith('/api/v1/capacity')) {
+      return Promise.resolve(jsonResponse(capacity));
     }
     if (url.endsWith('/api/v1/admin/status')) {
       return Promise.resolve(
@@ -106,6 +118,22 @@ function mockApi(profiles = [profile]) {
     }
     if (url.includes('/api/v1/operations/logs')) {
       return Promise.resolve(jsonResponse({ events: [] }));
+    }
+    if (url.endsWith('/api/v1/operations/resources')) {
+      return Promise.resolve(
+        jsonResponse({
+          capacity,
+          limitsPerWorker: {
+            cpus: 2,
+            memoryBytes: 2_147_483_648,
+            pids: 512,
+            sharedMemoryBytes: 1_073_741_824,
+            videoBitrateMbps: 12,
+          },
+          sampledAt: '2026-07-28T12:00:00.000Z',
+          sessions: [],
+        }),
+      );
     }
     if (url.endsWith('/api/v1/backups')) {
       return Promise.resolve(jsonResponse({ backups: [] }));
@@ -411,5 +439,23 @@ describe('MediaDeck application shell', () => {
       'Browser capacity is full',
     );
     expect(screen.getByRole('button', { name: 'Try again' })).toBeInTheDocument();
+  });
+
+  it('prevents a new launch when host stream capacity is full', async () => {
+    mockApi([profile], {
+      activeSessions: 2,
+      availableSlots: 0,
+      atCapacity: true,
+      idleTimeoutSeconds: 1800,
+      maxSessions: 2,
+    });
+    const user = userEvent.setup();
+    render(<App />);
+
+    await user.click(await screen.findByRole('button', { name: /Tommy/ }));
+    const launch = screen.getByRole('button', { name: 'Launch YouTube' });
+    expect(launch).toBeDisabled();
+    expect(screen.getByText('All streams busy')).toBeInTheDocument();
+    expect(screen.getByText(/running 2 of 2 streams/)).toBeInTheDocument();
   });
 });

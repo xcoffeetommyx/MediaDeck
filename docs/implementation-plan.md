@@ -179,6 +179,8 @@ entry point and Funnel remains disabled. See
 
 ## Stage 7: Concurrent Sessions
 
+Status: Complete (2026-07-28)
+
 Scope:
 
 - Configurable worker pool and resource limits
@@ -194,8 +196,15 @@ Validation:
 - The host rejects excess sessions cleanly
 - CPU, memory, GPU, and bandwidth limits are observable
 
-This stage may ship after the first usable MediaDeck release, but earlier stages
-must not require structural redesign to support it.
+The session, storage, and driver boundaries from earlier stages supported this
+work without structural redesign.
+
+Validation completed with session-authorization, capacity, worker-resource,
+HTTP/WebSocket gateway, controller, and failure-isolation tests plus a live
+two-profile production-container exercise. The live host rejected a third
+session, enforced Docker CPU/memory/PID ceilings, recovered one forcibly removed
+worker, and kept the second worker running. See
+[Stage 7 Concurrent Sessions](stage-7-concurrent-sessions.md).
 
 ## Stage 8: Firefox Add-on Management
 

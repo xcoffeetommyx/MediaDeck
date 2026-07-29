@@ -108,7 +108,7 @@ and Updates screens in the production image.
 
 ## Deferred Work
 
-Stage 7 owns concurrent-session authorization, capacity observability, and
-failure isolation. Stage 8 owns Firefox add-on management. Functional
+Stage 7 has delivered concurrent-session authorization, capacity observability,
+and failure isolation. Stage 8 owns Firefox add-on management. Functional
 implementation remains with Codex; final visual polish remains reserved for the
 Claude Opus 5 handoff after those functional stages.

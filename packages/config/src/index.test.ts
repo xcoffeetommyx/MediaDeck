@@ -21,7 +21,9 @@ describe('server configuration', () => {
     const config = loadServerConfig({
       APP_VERSION: '2.0.0',
       BROWSER_SESSION_IDLE_TIMEOUT_SECONDS: '600',
+      BROWSER_WORKER_CPUS: '1.5',
       BROWSER_WORKER_DRIVER: 'docker',
+      BROWSER_WORKER_MEMORY_MB: '1536',
       BROWSER_WORKER_URL: 'http://browser-worker:3000',
       DATA_DIR: './custom-data',
       NODE_ENV: 'production',
@@ -33,8 +35,10 @@ describe('server configuration', () => {
     expect(config.browserWorkerUrl).toBe('http://browser-worker:3000');
     expect(config.browserWorker).toMatchObject({
       driver: 'docker',
+      cpus: 1.5,
       idleTimeoutSeconds: 600,
       maxSessions: 1,
+      memoryMegabytes: 1536,
     });
     expect(config.trustProxy).toBe(true);
     expect(config.dataDirectory).toBe(resolve('./custom-data'));
