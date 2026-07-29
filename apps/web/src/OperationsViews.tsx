@@ -3,10 +3,13 @@ import type {
   AdministratorStatus,
   BackupListResponse,
   BackupSummary,
+  ChromeExtension,
+  ChromeExtensionListResponse,
   BrowserResourceReport,
   BrowserWorkerHealthResponse,
   OperationalDiagnostics,
   OperationEventListResponse,
+  Profile,
   RestoreBackupResponse,
   StreamQualityPreset,
   UnlockAdministratorResponse,
@@ -59,8 +62,13 @@ const streamQualityOptions: {
 type SettingsViewProperties = {
   controllerConnected: boolean;
   onBack: () => void;
+  profile: Profile | null;
   workerHealth: BrowserWorkerHealthResponse | null;
 };
+
+function extractChromeExtensionId(value: string): string | null {
+  return /[a-p]{32}/.exec(value.trim())?.[0] ?? null;
+}
 
 function errorMessage(error: unknown, fallback: string): string {
   return error instanceof Error && error.message ? error.message : fallback;
@@ -92,6 +100,7 @@ function authorized(status: AdministratorStatus | null): boolean {
 export function SettingsView({
   controllerConnected,
   onBack,
+  profile,
   workerHealth,
 }: SettingsViewProperties) {
   const [administrator, setAdministrator] = useState<AdministratorStatus | null>(null);
@@ -100,6 +109,9 @@ export function SettingsView({
   const [backups, setBackups] = useState<BackupSummary[]>([]);
   const [events, setEvents] = useState<OperationEventListResponse['events']>([]);
   const [resources, setResources] = useState<BrowserResourceReport | null>(null);
+  const [extensions, setExtensions] = useState<ChromeExtension[]>([]);
+  const [extensionName, setExtensionName] = useState('');
+  const [extensionSource, setExtensionSource] = useState('');
   const [newPin, setNewPin] = useState('');
   const [busy, setBusy] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -108,17 +120,28 @@ export function SettingsView({
   const [confirmRequest, setConfirmRequest] = useState<ConfirmRequest | null>(null);
 
   const load = useCallback(async () => {
-    const [nextAdministrator, nextSettings, nextDiagnostics, nextBackups] =
-      await Promise.all([
-        requestJson<AdministratorStatus>('/api/v1/admin/status'),
-        requestJson<AdministratorSettings>('/api/v1/settings'),
-        requestJson<OperationalDiagnostics>('/api/v1/operations/diagnostics'),
-        requestJson<BackupListResponse>('/api/v1/backups'),
-      ]);
+    const [
+      nextAdministrator,
+      nextSettings,
+      nextDiagnostics,
+      nextBackups,
+      nextExtensions,
+    ] = await Promise.all([
+      requestJson<AdministratorStatus>('/api/v1/admin/status'),
+      requestJson<AdministratorSettings>('/api/v1/settings'),
+      requestJson<OperationalDiagnostics>('/api/v1/operations/diagnostics'),
+      requestJson<BackupListResponse>('/api/v1/backups'),
+      profile
+        ? requestJson<ChromeExtensionListResponse>(
+            `/api/v1/profiles/${profile.id}/extensions`,
+          )
+        : Promise.resolve({ extensions: [] }),
+    ]);
     setAdministrator(nextAdministrator);
     setSettings(nextSettings);
     setDiagnostics(nextDiagnostics);
     setBackups(nextBackups.backups);
+    setExtensions(nextExtensions.extensions);
     if (nextAdministrator.authenticated) {
       const [log, resourceReport] = await Promise.all([
         requestJson<OperationEventListResponse>('/api/v1/operations/logs?limit=8'),
@@ -131,7 +154,7 @@ export function SettingsView({
       setResources(null);
     }
     setLoaded(true);
-  }, []);
+  }, [profile]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -307,6 +330,175 @@ export function SettingsView({
       </div>
 
       <div className="operations-grid">
+        <OperationCard
+          badge={profile ? `${extensions.length} managed` : 'Guest'}
+          eyebrow="Brave"
+          title={profile ? `${profile.name} extensions` : 'Chrome extensions'}
+          wide
+        >
+          {!profile ? (
+            <p className="operation-empty">
+              <strong>Guest extensions are temporary.</strong>
+              Choose a persistent profile to manage Chrome Web Store extensions.
+            </p>
+          ) : (
+            <>
+              <div className="extension-install-grid">
+                <label className="field-label" htmlFor="extension-name">
+                  Display name
+                </label>
+                <input
+                  className="text-field focusable"
+                  data-focusable="true"
+                  id="extension-name"
+                  maxLength={128}
+                  onChange={(event) => setExtensionName(event.target.value)}
+                  placeholder="Example: SponsorBlock"
+                  type="text"
+                  value={extensionName}
+                />
+                <label className="field-label" htmlFor="extension-source">
+                  Chrome Web Store URL or extension ID
+                </label>
+                <input
+                  className="text-field focusable"
+                  data-focusable="true"
+                  id="extension-source"
+                  onChange={(event) => setExtensionSource(event.target.value)}
+                  placeholder="Paste the store listing URL"
+                  spellCheck="false"
+                  type="text"
+                  value={extensionSource}
+                />
+                <button
+                  aria-busy={busy === 'extension-add'}
+                  className="primary-button focusable"
+                  data-focusable="true"
+                  disabled={
+                    busy !== null ||
+                    controlsLocked ||
+                    activeSessions > 0 ||
+                    extensionName.trim().length === 0 ||
+                    extractChromeExtensionId(extensionSource) === null
+                  }
+                  onClick={() =>
+                    void run('extension-add', async () => {
+                      const extensionId = extractChromeExtensionId(extensionSource);
+                      if (!extensionId) {
+                        throw new Error('Enter a valid Chrome Web Store URL or ID.');
+                      }
+                      await requestJson(`/api/v1/profiles/${profile.id}/extensions`, {
+                        body: JSON.stringify({
+                          id: extensionId,
+                          name: extensionName.trim(),
+                        }),
+                        headers: { 'Content-Type': 'application/json' },
+                        method: 'POST',
+                      });
+                      const addedName = extensionName.trim();
+                      setExtensionName('');
+                      setExtensionSource('');
+                      return `${addedName} will install when ${profile.name} launches.`;
+                    })
+                  }
+                >
+                  Add extension
+                </button>
+              </div>
+
+              {!loaded ? (
+                <SkeletonRows rows={2} />
+              ) : extensions.length === 0 ? (
+                <p className="operation-empty">
+                  <strong>No managed extensions.</strong>
+                  Add a trusted listing from the Chrome Web Store.
+                </p>
+              ) : (
+                <div className="backup-list">
+                  {extensions.map((extension) => (
+                    <div className="backup-row extension-row" key={extension.id}>
+                      <div>
+                        <strong>{extension.name}</strong>
+                        <span>
+                          {extension.enabled ? 'Enabled' : 'Disabled'} · Chrome Web
+                          Store
+                        </span>
+                        <code>{extension.id}</code>
+                      </div>
+                      <div className="row-actions">
+                        <button
+                          aria-pressed={extension.enabled}
+                          className="secondary-button focusable"
+                          data-focusable="true"
+                          disabled={
+                            busy !== null || controlsLocked || activeSessions > 0
+                          }
+                          onClick={() =>
+                            void run(`extension-${extension.id}`, async () => {
+                              await requestJson(
+                                `/api/v1/profiles/${profile.id}/extensions/${extension.id}`,
+                                {
+                                  body: JSON.stringify({
+                                    enabled: !extension.enabled,
+                                  }),
+                                  headers: {
+                                    'Content-Type': 'application/json',
+                                  },
+                                  method: 'PATCH',
+                                },
+                              );
+                              return `${extension.name} ${extension.enabled ? 'disabled' : 'enabled'} for the next launch.`;
+                            })
+                          }
+                        >
+                          {extension.enabled ? 'Disable' : 'Enable'}
+                        </button>
+                        <button
+                          aria-label={`Remove ${extension.name}`}
+                          className="secondary-button danger-button focusable"
+                          data-focusable="true"
+                          disabled={
+                            busy !== null || controlsLocked || activeSessions > 0
+                          }
+                          onClick={() =>
+                            confirmThen(
+                              {
+                                body: `${extension.name} will be removed from ${profile.name} on the next Brave launch.`,
+                                confirmLabel: 'Remove extension',
+                                danger: true,
+                                eyebrow: 'Chrome extensions',
+                                title: `Remove ${extension.name}?`,
+                              },
+                              () =>
+                                void run(
+                                  `extension-remove-${extension.id}`,
+                                  async () => {
+                                    await requestJson(
+                                      `/api/v1/profiles/${profile.id}/extensions/${extension.id}`,
+                                      { method: 'DELETE' },
+                                    );
+                                    return `${extension.name} removed.`;
+                                  },
+                                ),
+                            )
+                          }
+                        >
+                          Remove
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+              <p className="operation-help">
+                Only add extensions you trust. MediaDeck authorizes Brave to install and
+                update them from the Chrome Web Store. Changes require the profile’s
+                active session to be stopped.
+              </p>
+            </>
+          )}
+        </OperationCard>
+
         <OperationCard
           badge={
             resources

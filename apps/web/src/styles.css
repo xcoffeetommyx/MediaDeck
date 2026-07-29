@@ -1185,7 +1185,7 @@ code {
   font-size: 0.76rem;
 }
 
-.addon-row strong span {
+.extension-row strong span {
   color: var(--text-quiet);
   font-size: 0.78rem;
   font-weight: 600;
@@ -1193,7 +1193,7 @@ code {
 
 /* Diagnostics stay available, but read as reference detail rather than
    as the headline. */
-.addon-row code,
+.extension-row code,
 .release-detail code {
   display: block;
   max-width: min(48rem, 70vw);
@@ -1225,6 +1225,39 @@ code {
   display: flex;
   flex-wrap: wrap;
   gap: 0.5rem;
+}
+
+.extension-install-grid {
+  display: grid;
+  align-items: end;
+  margin-bottom: 1rem;
+  grid-template-columns: minmax(10rem, 0.7fr) minmax(16rem, 1.3fr) auto;
+  gap: 0.55rem 0.75rem;
+}
+
+.extension-install-grid .field-label:first-child {
+  grid-column: 1;
+  grid-row: 1;
+}
+
+.extension-install-grid #extension-name {
+  grid-column: 1;
+  grid-row: 2;
+}
+
+.extension-install-grid .field-label:nth-of-type(2) {
+  grid-column: 2;
+  grid-row: 1;
+}
+
+.extension-install-grid #extension-source {
+  grid-column: 2;
+  grid-row: 2;
+}
+
+.extension-install-grid .primary-button {
+  grid-column: 3;
+  grid-row: 2;
 }
 
 .danger-button {
@@ -2073,5 +2106,20 @@ code {
   .stream-loader {
     animation-duration: 2s !important;
     animation-iteration-count: infinite !important;
+  }
+}
+
+@media (max-width: 760px) {
+  .extension-install-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .extension-install-grid .field-label:first-child,
+  .extension-install-grid #extension-name,
+  .extension-install-grid .field-label:nth-of-type(2),
+  .extension-install-grid #extension-source,
+  .extension-install-grid .primary-button {
+    grid-column: 1;
+    grid-row: auto;
   }
 }

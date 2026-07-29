@@ -36,6 +36,9 @@ that setting. New persistent sessions use
 `profiles/<profile-id>/brave-origin`; Guest sessions use temporary
 `runtime/guests/<session-id>/brave-origin` storage.
 
-Chrome-extension management is intentionally deferred. The bundled AV1
-compatibility shim is an internal worker component and appears only when the
-compatibility setting is enabled.
+Persistent profiles can manage Chrome Web Store extensions from Settings.
+MediaDeck accepts a trusted listing URL or extension ID and applies the
+selection through Brave's per-profile managed policy on the next launch.
+Arbitrary CRX and ZIP uploads are intentionally unsupported. The bundled AV1
+compatibility shim remains an internal worker component and appears only when
+the compatibility setting is enabled.

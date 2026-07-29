@@ -45,7 +45,7 @@ describe('MediaDeck database migrations', () => {
 
     expect(store.listProfiles()).toHaveLength(1);
     expect(store.listProfiles()[0]?.name).toBe('Legacy');
-    expect(store.getSchemaVersion()).toBe(6);
+    expect(store.getSchemaVersion()).toBe(7);
     store.close();
   });
 });

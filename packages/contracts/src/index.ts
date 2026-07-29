@@ -82,6 +82,47 @@ export type ProfileListResponse = z.infer<typeof profileListResponseSchema>;
 export type CreateProfileRequest = z.infer<typeof createProfileRequestSchema>;
 export type UpdateProfileRequest = z.infer<typeof updateProfileRequestSchema>;
 
+export const chromeExtensionIdSchema = z
+  .string()
+  .trim()
+  .regex(
+    /^[a-p]{32}$/,
+    'Use the 32-character extension ID from the Chrome Web Store URL',
+  );
+
+export const chromeExtensionSchema = z.object({
+  enabled: z.boolean(),
+  id: chromeExtensionIdSchema,
+  installedAt: z.iso.datetime(),
+  name: z.string().trim().min(1).max(128),
+  profileId: z.uuid(),
+  updatedAt: z.iso.datetime(),
+});
+
+export const chromeExtensionListResponseSchema = z.object({
+  extensions: z.array(chromeExtensionSchema),
+});
+
+export const createChromeExtensionRequestSchema = z.object({
+  id: chromeExtensionIdSchema,
+  name: z.string().trim().min(1).max(128),
+});
+
+export const updateChromeExtensionRequestSchema = z.object({
+  enabled: z.boolean(),
+});
+
+export type ChromeExtension = z.infer<typeof chromeExtensionSchema>;
+export type ChromeExtensionListResponse = z.infer<
+  typeof chromeExtensionListResponseSchema
+>;
+export type CreateChromeExtensionRequest = z.infer<
+  typeof createChromeExtensionRequestSchema
+>;
+export type UpdateChromeExtensionRequest = z.infer<
+  typeof updateChromeExtensionRequestSchema
+>;
+
 export const mediaApplicationIdSchema = z
   .string()
   .trim()
@@ -291,6 +332,7 @@ export const operationEventSchema = z.object({
     'profile',
     'recovery',
     'session',
+    'extension',
     'system',
     'update',
   ]),

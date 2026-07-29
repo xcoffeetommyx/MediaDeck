@@ -11,6 +11,7 @@ export type StartBrowserWorkerInput = {
   framerate: number;
   kind: 'profile' | 'guest';
   launchUrl: string;
+  policyStoragePath?: string;
   sessionId: string;
   storagePath: string;
   videoBitrate: number;
@@ -198,6 +199,7 @@ export class DockerBrowserWorkerDriver implements BrowserWorkerDriver {
       kind,
       launchUrl,
       disableAv1Playback = false,
+      policyStoragePath,
       sessionId,
       storagePath,
       videoBitrate,
@@ -304,6 +306,19 @@ export class DockerBrowserWorkerDriver implements BrowserWorkerDriver {
                   Subpath: storagePath,
                 },
               },
+              ...(policyStoragePath
+                ? [
+                    {
+                      ReadOnly: true,
+                      Source: this.config.dataVolumeName,
+                      Target: '/etc/brave/policies/managed',
+                      Type: 'volume',
+                      VolumeOptions: {
+                        Subpath: policyStoragePath,
+                      },
+                    },
+                  ]
+                : []),
             ],
             NetworkMode: this.config.network,
             NanoCpus: Math.round(this.config.cpus * 1_000_000_000),

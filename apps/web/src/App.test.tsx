@@ -49,6 +49,14 @@ function mockApi(
     maxSessions: 1,
   },
 ) {
+  let extensions: {
+    enabled: boolean;
+    id: string;
+    installedAt: string;
+    name: string;
+    profileId: string;
+    updatedAt: string;
+  }[] = [];
   let settings = {
     automaticUpdateChecks: true,
     backupRetentionCount: 5,
@@ -158,6 +166,22 @@ function mockApi(
           state: 'unconfigured',
         }),
       );
+    }
+    if (url.endsWith(`/api/v1/profiles/${profile.id}/extensions`)) {
+      if (init?.method === 'POST' && typeof init.body === 'string') {
+        const body = JSON.parse(init.body) as { id: string; name: string };
+        const extension = {
+          enabled: true,
+          id: body.id,
+          installedAt: '2026-07-28T12:00:00.000Z',
+          name: body.name,
+          profileId: profile.id,
+          updatedAt: '2026-07-28T12:00:00.000Z',
+        };
+        extensions = [extension];
+        return Promise.resolve(jsonResponse(extension, 201));
+      }
+      return Promise.resolve(jsonResponse({ extensions }));
     }
     if (url.endsWith('/api/v1/profiles') && init?.method === 'POST') {
       if (typeof init.body !== 'string') {
@@ -302,6 +326,37 @@ describe('MediaDeck application shell', () => {
     ).toBe(true);
     expect(
       await screen.findByText(/Data saver stream quality saved/i),
+    ).toBeInTheDocument();
+  });
+
+  it('adds a trusted Chrome Web Store extension to the selected profile', async () => {
+    const fetchMock = mockApi();
+    const user = userEvent.setup();
+    render(<App />);
+
+    await user.click(await screen.findByRole('button', { name: /Tommy/ }));
+    await user.click(screen.getByRole('button', { name: /Settings/ }));
+    await user.type(await screen.findByLabelText('Display name'), 'SponsorBlock');
+    await user.type(
+      screen.getByLabelText('Chrome Web Store URL or extension ID'),
+      'https://chromewebstore.google.com/detail/sponsorblock/mnjggcdmjocbbbhaepdhchncahnbgone',
+    );
+    await user.click(screen.getByRole('button', { name: 'Add extension' }));
+
+    expect(
+      fetchMock.mock.calls.some(
+        ([input, init]) =>
+          requestUrl(input).endsWith(`/api/v1/profiles/${profile.id}/extensions`) &&
+          init?.method === 'POST' &&
+          init.body ===
+            JSON.stringify({
+              id: 'mnjggcdmjocbbbhaepdhchncahnbgone',
+              name: 'SponsorBlock',
+            }),
+      ),
+    ).toBe(true);
+    expect(
+      await screen.findByText(/will install when Tommy launches/i),
     ).toBeInTheDocument();
   });
 

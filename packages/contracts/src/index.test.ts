@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   administratorSettingsSchema,
+  chromeExtensionIdSchema,
   browserSessionSchema,
   browserWorkerHealthResponseSchema,
   createBrowserSessionRequestSchema,
@@ -181,5 +182,13 @@ describe('API contracts', () => {
         streamQualityPreset: 'ultra',
       }),
     ).toThrow();
+  });
+
+  it('accepts only Chrome Web Store extension IDs', () => {
+    expect(chromeExtensionIdSchema.parse('mnjggcdmjocbbbhaepdhchncahnbgone')).toBe(
+      'mnjggcdmjocbbbhaepdhchncahnbgone',
+    );
+    expect(() => chromeExtensionIdSchema.parse('../unsafe')).toThrow();
+    expect(() => chromeExtensionIdSchema.parse('z'.repeat(32))).toThrow();
   });
 });

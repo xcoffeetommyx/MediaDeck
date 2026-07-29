@@ -343,6 +343,7 @@ export function App() {
 
         {view === 'settings' && activeProfile ? (
           <Settings
+            activeProfile={activeProfile}
             controllerConnected={controllerConnected}
             workerHealth={workerHealth}
             onBack={goBack}
@@ -1021,10 +1022,12 @@ function Home({
 }
 
 function Settings({
+  activeProfile,
   controllerConnected,
   onBack,
   workerHealth,
 }: {
+  activeProfile: ActiveProfile;
   controllerConnected: boolean;
   onBack: () => void;
   workerHealth: BrowserWorkerHealthResponse | null;
@@ -1033,6 +1036,7 @@ function Settings({
     <SettingsView
       controllerConnected={controllerConnected}
       onBack={onBack}
+      profile={activeProfile.kind === 'profile' ? activeProfile.profile : null}
       workerHealth={workerHealth}
     />
   );

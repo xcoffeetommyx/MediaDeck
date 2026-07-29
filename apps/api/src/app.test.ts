@@ -9,6 +9,7 @@ import {
   browserSessionSchema,
   browserWorkerHealthResponseSchema,
   healthResponseSchema,
+  chromeExtensionListResponseSchema,
   operationEventListResponseSchema,
   profileSchema,
   publicConfigResponseSchema,
@@ -404,6 +405,107 @@ describe('MediaDeck API', () => {
     expect(blocked.json()).toMatchObject({
       error: 'conflict',
       message: 'Stop active Brave sessions before changing browser playback settings',
+    });
+
+    await app.close();
+  });
+
+  it('manages per-profile Chrome Web Store extensions and writes Brave policy', async () => {
+    const driver = new TestBrowserWorkerDriver();
+    const app = await buildApplication({
+      config: createConfig(),
+      logger: false,
+      workerDriver: driver,
+    });
+    const created = await app.inject({
+      method: 'POST',
+      payload: { name: 'Extensions' },
+      url: '/api/v1/profiles',
+    });
+    const profile = profileSchema.parse(created.json());
+    const extensionId = 'mnjggcdmjocbbbhaepdhchncahnbgone';
+
+    const added = await app.inject({
+      method: 'POST',
+      payload: { id: extensionId, name: 'SponsorBlock' },
+      url: `/api/v1/profiles/${profile.id}/extensions`,
+    });
+    expect(added.statusCode).toBe(201);
+
+    const inventory = await app.inject({
+      method: 'GET',
+      url: `/api/v1/profiles/${profile.id}/extensions`,
+    });
+    expect(
+      chromeExtensionListResponseSchema.parse(inventory.json()).extensions,
+    ).toEqual([
+      expect.objectContaining({
+        enabled: true,
+        id: extensionId,
+        name: 'SponsorBlock',
+      }),
+    ]);
+
+    const policyPath = join(
+      dataDirectory,
+      'profiles',
+      profile.id,
+      'brave-origin',
+      'mediadeck',
+      'policy',
+      'mediadeck.json',
+    );
+    const enabledPolicy = JSON.parse(await readFile(policyPath, 'utf8')) as {
+      ExtensionSettings: Record<
+        string,
+        { installation_mode: string; update_url?: string }
+      >;
+    };
+    expect(enabledPolicy.ExtensionSettings[extensionId]).toEqual({
+      installation_mode: 'force_installed',
+      update_url: 'https://clients2.google.com/service/update2/crx',
+    });
+
+    const disabled = await app.inject({
+      method: 'PATCH',
+      payload: { enabled: false },
+      url: `/api/v1/profiles/${profile.id}/extensions/${extensionId}`,
+    });
+    expect(disabled.json()).toMatchObject({ enabled: false });
+    const disabledPolicy = JSON.parse(await readFile(policyPath, 'utf8')) as {
+      ExtensionSettings: Record<string, { installation_mode: string }>;
+    };
+    expect(disabledPolicy.ExtensionSettings[extensionId]).toEqual({
+      installation_mode: 'blocked',
+    });
+
+    await app.inject({
+      method: 'PATCH',
+      payload: { enabled: true },
+      url: `/api/v1/profiles/${profile.id}/extensions/${extensionId}`,
+    });
+    const launch = await app.inject({
+      method: 'POST',
+      payload: {
+        accessToken: 'e'.repeat(43),
+        kind: 'profile',
+        profileId: profile.id,
+        sessionId: '60dd0956-cb1d-4a50-a9d9-4c03e2fdc4eb',
+      },
+      url: '/api/v1/applications/youtube/launch',
+    });
+    expect(launch.statusCode).toBe(200);
+    expect(driver.starts.at(-1)?.policyStoragePath).toBe(
+      `profiles/${profile.id}/brave-origin/mediadeck/policy`,
+    );
+    const blockedWhileActive = await app.inject({
+      method: 'PATCH',
+      payload: { enabled: false },
+      url: `/api/v1/profiles/${profile.id}/extensions/${extensionId}`,
+    });
+    expect(blockedWhileActive.statusCode).toBe(409);
+    expect(blockedWhileActive.json()).toMatchObject({
+      message: 'Stop the active profile session before changing extensions',
     });
 
     await app.close();

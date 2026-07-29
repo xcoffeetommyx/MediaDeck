@@ -66,6 +66,8 @@ Stages 1 through 8 establish:
 - Separate persistent Brave Origin profiles and temporary Guest storage
 - Optional AV1 prevention for older hardware
 - Broadwell-compatible i965 plus newer Intel iHD VA-API drivers
+- Per-profile Chrome Web Store extension management
+- Administrator-protected install, enable/disable, and removal controls
 
 ## Quick Start
 

@@ -89,6 +89,13 @@ Applications:
 - `GET /api/v1/applications`
 - `POST /api/v1/applications/youtube/launch`
 
+Chrome extensions:
+
+- `GET /api/v1/profiles/:profileId/extensions`
+- `POST /api/v1/profiles/:profileId/extensions`
+- `PATCH /api/v1/profiles/:profileId/extensions/:extensionId`
+- `DELETE /api/v1/profiles/:profileId/extensions/:extensionId`
+
 Operations:
 
 - `GET /api/v1/admin/status`
@@ -233,6 +240,8 @@ The named Docker volume `mediadeck-data` is mounted at `/data`:
   profiles/
     <profile-uuid>/
       brave-origin/
+        mediadeck/
+          policy/
   runtime/
     approved-update.json
     restore-request.json
@@ -247,10 +256,27 @@ persistent Brave profile into more than one future browser worker.
 The container runs as an unprivileged user with a read-only root filesystem.
 Only `/data` and the temporary `/tmp` filesystem are writable.
 
+## Chrome Web Store Extensions
+
+Open Settings from a persistent profile and paste a Chrome Web Store listing
+URL or its 32-character extension ID. MediaDeck stores only the ID and display
+name. Brave downloads and updates the extension from the official Chrome Web
+Store update service when that profile next launches.
+
+Extension changes are administrator-protected when a PIN is configured and
+require the selected profile's active session to be stopped. Disabled
+extensions are blocked by policy; enabled extensions are installed through
+Brave's managed `ExtensionSettings` policy. Guest has no managed extension
+inventory.
+
+Only add extensions you trust. A managed installation authorizes the extension
+without an interactive Brave permission prompt. Review its Chrome Web Store
+listing and permissions before adding it. Arbitrary CRX and ZIP uploads are not
+accepted.
+
 `PUID` must remain `1000`. The MediaDeck application and Brave worker share
 profile-volume ownership; a different worker UID could make profile files
-unreadable by the application. Chrome-extension management is intentionally
-deferred and is not exposed by this release.
+unreadable by the application.
 
 ## Administrator Operations
 

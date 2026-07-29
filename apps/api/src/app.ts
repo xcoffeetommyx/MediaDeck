@@ -24,6 +24,8 @@ import {
   type BrowserWorkerDriver,
 } from './browser-worker-driver.js';
 import { DomainError } from './domain-errors.js';
+import { ExtensionManager } from './extension-manager.js';
+import { registerExtensionRoutes } from './extension-routes.js';
 import { OperationsManager } from './operations.js';
 import { registerOperationsRoutes } from './operations-routes.js';
 import { OperationCoordinator } from './operation-coordinator.js';
@@ -105,6 +107,12 @@ export async function buildApplication({
   );
   const applications = new ApplicationRegistry(config.browserWorker.startUrl);
   const operationCoordinator = new OperationCoordinator();
+  const extensionManager = new ExtensionManager(
+    store,
+    paths,
+    undefined,
+    operationCoordinator,
+  );
   const profileManager = new ProfileManager(
     store,
     paths,
@@ -128,6 +136,10 @@ export async function buildApplication({
       },
       operations: operationCoordinator,
       paths,
+      prepareProfileExtensions: async (profileId) => {
+        await extensionManager.prepareProfile(profileId);
+        return extensionManager.policyStoragePath(profileId);
+      },
       store,
       workerDriver,
       workerConfig: config.browserWorker,
@@ -143,6 +155,7 @@ export async function buildApplication({
   });
 
   try {
+    await extensionManager.initialize();
     await sessionManager.initialize();
 
     if (restoredBackupId) {
@@ -266,6 +279,7 @@ export async function buildApplication({
     app.get('/api/v1/capacity', () => sessionManager.capacity());
 
     registerProfileRoutes(app, profileManager, administrator);
+    registerExtensionRoutes(app, extensionManager, administrator);
     registerSessionRoutes(
       app,
       sessionManager,

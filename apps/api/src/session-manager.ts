@@ -35,6 +35,7 @@ type SessionManagerOptions = {
   onMonitorError?: (error: unknown) => void;
   operations?: OperationCoordinator;
   paths: StoragePaths;
+  prepareProfileExtensions?: (profileId: string) => Promise<string>;
   store: MediaDeckStore;
   workerDriver: BrowserWorkerDriver;
   workerConfig: BrowserWorkerConfig;
@@ -93,6 +94,7 @@ export class SessionManager {
   readonly #onMonitorError: (error: unknown) => void;
   readonly #operations: OperationCoordinator;
   readonly #paths: StoragePaths;
+  readonly #prepareProfileExtensions: (profileId: string) => Promise<string>;
   readonly #store: MediaDeckStore;
   readonly #workerDriver: BrowserWorkerDriver;
   readonly #workerConfig: BrowserWorkerConfig;
@@ -110,6 +112,7 @@ export class SessionManager {
     onMonitorError = () => undefined,
     operations = new OperationCoordinator(),
     paths,
+    prepareProfileExtensions = () => Promise.resolve(''),
     store,
     workerDriver,
     workerConfig,
@@ -129,6 +132,7 @@ export class SessionManager {
     this.#onMonitorError = onMonitorError;
     this.#operations = operations;
     this.#paths = paths;
+    this.#prepareProfileExtensions = prepareProfileExtensions;
     this.#store = store;
     this.#workerDriver = workerDriver;
     this.#workerConfig = workerConfig;
@@ -600,12 +604,17 @@ export class SessionManager {
   private async startWorker(
     session: StoredBrowserSession,
   ): Promise<StoredBrowserSession> {
+    const policyStoragePath =
+      session.kind === 'profile' && session.profileId
+        ? await this.#prepareProfileExtensions(session.profileId)
+        : undefined;
     const streamQuality = this.#getStreamQuality();
     const { workerId } = await this.#workerDriver.start({
       disableAv1Playback: this.#getDisableAv1Playback(),
       framerate: streamQuality.framerate,
       kind: session.kind,
       launchUrl: this.#applications.require(session.applicationId).launchUrl,
+      ...(policyStoragePath ? { policyStoragePath } : {}),
       sessionId: session.id,
       storagePath: session.storagePath,
       videoBitrate: streamQuality.videoBitrate,

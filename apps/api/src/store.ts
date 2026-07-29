@@ -7,6 +7,7 @@ import type {
   MediaApplicationId,
   OperationEvent,
   Profile,
+  ChromeExtension,
 } from '@mediadeck/contracts';
 
 import { CapacityError, ConflictError, NotFoundError } from './domain-errors.js';
@@ -43,6 +44,15 @@ type OperationEventRow = {
   id: number;
   level: OperationEvent['level'];
   message: string;
+};
+
+type ChromeExtensionRow = {
+  enabled: number;
+  extension_id: string;
+  installed_at: string;
+  name: string;
+  profile_id: string;
+  updated_at: string;
 };
 
 export type StoredAdministratorSecurity = {
@@ -105,6 +115,17 @@ function mapOperationEvent(row: OperationEventRow): OperationEvent {
     id: row.id,
     level: row.level,
     message: row.message,
+  };
+}
+
+function mapChromeExtension(row: ChromeExtensionRow): ChromeExtension {
+  return {
+    enabled: row.enabled === 1,
+    id: row.extension_id,
+    installedAt: row.installed_at,
+    name: row.name,
+    profileId: row.profile_id,
+    updatedAt: row.updated_at,
   };
 }
 
@@ -206,6 +227,19 @@ export class MediaDeckStore {
       CREATE INDEX IF NOT EXISTS profile_addons_profile
       ON profile_addons(profile_id);
 
+      CREATE TABLE IF NOT EXISTS profile_chrome_extensions (
+        profile_id TEXT NOT NULL REFERENCES profiles(id) ON DELETE RESTRICT,
+        extension_id TEXT NOT NULL,
+        name TEXT NOT NULL,
+        enabled INTEGER NOT NULL CHECK(enabled IN (0, 1)),
+        installed_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        PRIMARY KEY (profile_id, extension_id)
+      );
+
+      CREATE INDEX IF NOT EXISTS profile_chrome_extensions_profile
+      ON profile_chrome_extensions(profile_id);
+
     `);
 
     const profileColumns = this.#database.pragma('table_info(profiles)') as {
@@ -229,7 +263,7 @@ export class MediaDeckStore {
       );
     }
 
-    this.#database.pragma('user_version = 6');
+    this.#database.pragma('user_version = 7');
   }
 
   async backupDatabase(destination: string): Promise<void> {
@@ -470,6 +504,9 @@ export class MediaDeckStore {
     this.#database.transaction(() => {
       this.#database.prepare('DELETE FROM profile_addons WHERE profile_id = ?').run(id);
       this.#database
+        .prepare('DELETE FROM profile_chrome_extensions WHERE profile_id = ?')
+        .run(id);
+      this.#database
         .prepare(
           `
             UPDATE profiles
@@ -479,6 +516,97 @@ export class MediaDeckStore {
         )
         .run(deletedAt, deletedAt, id);
     })();
+  }
+
+  listChromeExtensions(profileId: string): ChromeExtension[] {
+    this.requireProfile(profileId);
+    return (
+      this.#database
+        .prepare(
+          `
+            SELECT *
+            FROM profile_chrome_extensions
+            WHERE profile_id = ?
+            ORDER BY lower(name), extension_id
+          `,
+        )
+        .all(profileId) as ChromeExtensionRow[]
+    ).map(mapChromeExtension);
+  }
+
+  getChromeExtension(
+    profileId: string,
+    extensionId: string,
+  ): ChromeExtension | undefined {
+    const row = this.#database
+      .prepare(
+        `
+          SELECT *
+          FROM profile_chrome_extensions
+          WHERE profile_id = ? AND extension_id = ?
+        `,
+      )
+      .get(profileId, extensionId) as ChromeExtensionRow | undefined;
+    return row ? mapChromeExtension(row) : undefined;
+  }
+
+  createChromeExtension(extension: ChromeExtension): ChromeExtension {
+    this.requireProfile(extension.profileId);
+    this.#database
+      .prepare(
+        `
+          INSERT INTO profile_chrome_extensions (
+            profile_id, extension_id, name, enabled, installed_at, updated_at
+          ) VALUES (?, ?, ?, ?, ?, ?)
+        `,
+      )
+      .run(
+        extension.profileId,
+        extension.id,
+        extension.name,
+        extension.enabled ? 1 : 0,
+        extension.installedAt,
+        extension.updatedAt,
+      );
+    return this.getChromeExtension(extension.profileId, extension.id)!;
+  }
+
+  setChromeExtensionEnabled(
+    profileId: string,
+    extensionId: string,
+    enabled: boolean,
+    updatedAt: string,
+  ): ChromeExtension {
+    const result = this.#database
+      .prepare(
+        `
+          UPDATE profile_chrome_extensions
+          SET enabled = ?, updated_at = ?
+          WHERE profile_id = ? AND extension_id = ?
+        `,
+      )
+      .run(enabled ? 1 : 0, updatedAt, profileId, extensionId);
+    if (result.changes === 0) {
+      throw new NotFoundError(
+        `Extension ${extensionId} was not found for this profile`,
+      );
+    }
+    return this.getChromeExtension(profileId, extensionId)!;
+  }
+
+  deleteChromeExtension(profileId: string, extensionId: string): ChromeExtension {
+    const current = this.getChromeExtension(profileId, extensionId);
+    if (!current) {
+      throw new NotFoundError(
+        `Extension ${extensionId} was not found for this profile`,
+      );
+    }
+    this.#database
+      .prepare(
+        'DELETE FROM profile_chrome_extensions WHERE profile_id = ? AND extension_id = ?',
+      )
+      .run(profileId, extensionId);
+    return current;
   }
 
   createSession(

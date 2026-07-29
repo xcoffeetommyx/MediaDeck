@@ -281,6 +281,8 @@ it('uses DRI automatically and falls back to software when the device is unavail
       framerate: 30,
       kind: 'guest',
       launchUrl: 'https://www.youtube.com/',
+      policyStoragePath:
+        'profiles/8417990e-73dd-4d70-894f-d1bc1425d7de/brave-origin/mediadeck/policy',
       sessionId: '2abfc294-b100-48e1-93ad-bd34718e9a97',
       storagePath: 'runtime/guests/2abfc294-b100-48e1-93ad-bd34718e9a97/brave-origin',
       videoBitrate: 6,
@@ -289,7 +291,14 @@ it('uses DRI automatically and falls back to software when the device is unavail
 
   const hardware = createBodies[0] as {
     Env: string[];
-    HostConfig: { Devices?: unknown[] };
+    HostConfig: {
+      Devices?: unknown[];
+      Mounts: {
+        ReadOnly?: boolean;
+        Target: string;
+        VolumeOptions?: { Subpath?: string };
+      }[];
+    };
     Labels: Record<string, string>;
   };
   const software = createBodies[1] as {
@@ -306,6 +315,16 @@ it('uses DRI automatically and falls back to software when the device is unavail
   expect(hardware.Env.some((value) => value.startsWith('FIREFOX_CLI='))).toBe(false);
   expect(hardware.Env).toContain('SELKIES_USE_CPU=false|locked');
   expect(hardware.HostConfig.Devices).toHaveLength(1);
+  expect(hardware.HostConfig.Mounts).toContainEqual(
+    expect.objectContaining({
+      ReadOnly: true,
+      Target: '/etc/brave/policies/managed',
+      VolumeOptions: {
+        Subpath:
+          'profiles/8417990e-73dd-4d70-894f-d1bc1425d7de/brave-origin/mediadeck/policy',
+      },
+    }),
+  );
   expect(hardware.Labels['io.mediadeck.gpu.mode']).toBe('dri');
   expect(software.Env).toContain('SELKIES_USE_CPU=true|locked');
   expect(software.HostConfig.Devices).toBeUndefined();
