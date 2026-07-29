@@ -17,6 +17,11 @@ import {
 
 import { ApiError, requestJson } from './api';
 import { closeTopDialog } from './dialog-stack';
+import {
+  restoreElementKeyboard,
+  suppressElementKeyboard,
+  suppressFrameKeyboard,
+} from './frame-keyboard';
 import { Modal } from './Modal';
 import { useAutoFocus, useInputNavigation } from './navigation';
 import { SettingsView, UpdatesView } from './OperationsViews';
@@ -428,6 +433,14 @@ function YouTubeView({
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const stageRef = useRef<HTMLElement>(null);
   const launchInFlight = useRef(false);
+  // Fullscreen is only re-asserted when MediaDeck asked for it and something
+  // else dropped it moments later. See the fullscreenchange effect below.
+  const fullscreenIntent = useRef(false);
+  const fullscreenRequestedAt = useRef(0);
+  const fullscreenRetries = useRef(0);
+  // Console and TV browsers raise an on-screen keyboard whenever a text field
+  // takes focus. Only the explicit Keyboard control may do that.
+  const releaseKeyboardGuard = useRef<(() => void) | null>(null);
 
   const launch = useCallback(async () => {
     if (launchInFlight.current) return;
@@ -520,9 +533,33 @@ function YouTubeView({
     setExitRequested(true);
   }, []);
 
+  const leaveFullscreen = useCallback(() => {
+    fullscreenIntent.current = false;
+    fullscreenRetries.current = 0;
+    if (document.fullscreenElement) {
+      void document.exitFullscreen().catch(() => {
+        // Leaving fullscreen is best effort; the view still returns.
+      });
+    }
+  }, []);
+
+  /*
+   * Back is one level, not the whole session. While the stage is fullscreen,
+   * B/Escape returns to the windowed viewer; pressing it again stops Brave.
+   * This also stops a deliberate exit from being fought by the re-assert
+   * handler above, because leaving clears the intent.
+   */
+  const handleBack = useCallback(() => {
+    if (document.fullscreenElement) {
+      leaveFullscreen();
+      return;
+    }
+    requestExit();
+  }, [leaveFullscreen, requestExit]);
+
   useEffect(() => {
-    registerBackHandler(requestExit);
-  }, [registerBackHandler, requestExit]);
+    registerBackHandler(handleBack);
+  }, [handleBack, registerBackHandler]);
 
   useEffect(() => {
     if (!exitRequested) return;
@@ -570,24 +607,28 @@ function YouTubeView({
       setConnectionError('The Brave viewer did not load correctly.');
     }
 
+    releaseKeyboardGuard.current?.();
+    releaseKeyboardGuard.current = frameDocument
+      ? suppressFrameKeyboard(frameDocument)
+      : null;
+
     const frameWindow = iframeRef.current?.contentWindow;
     frameWindow?.addEventListener('message', (event) => {
       applyPipelineStatus(event.data);
     });
     frameWindow?.addEventListener('keydown', (event) => {
-      if (event.key === 'Escape') requestExit();
+      if (event.key === 'Escape') handleBack();
     });
-  }, [applyPipelineStatus, requestExit]);
+  }, [applyPipelineStatus, handleBack]);
 
   const enterStream = useCallback(() => {
     setEntered(true);
     iframeRef.current?.focus({ preventScroll: true });
     const frameDocument = iframeRef.current?.contentDocument;
     frameDocument?.querySelector<HTMLButtonElement>('#playButton')?.click();
-    (
-      frameDocument?.querySelector<HTMLElement>('#overlayInput') ??
-      frameDocument?.querySelector<HTMLElement>('#videoCanvas')
-    )?.focus();
+    // Deliberately the canvas and never the client's hidden text field:
+    // focusing a text field is what raises the console on-screen keyboard.
+    frameDocument?.querySelector<HTMLElement>('#videoCanvas')?.focus();
   }, []);
 
   const reloadStream = useCallback(() => {
@@ -625,15 +666,71 @@ function YouTubeView({
       return;
     }
 
+    fullscreenIntent.current = true;
+    fullscreenRequestedAt.current = Date.now();
+    fullscreenRetries.current = 0;
+
     try {
       await stage.requestFullscreen();
       setFullscreenError(null);
     } catch {
+      fullscreenIntent.current = false;
       setFullscreenError(
         'Fullscreen was blocked. You can still use the browser’s own fullscreen control.',
       );
     }
   }, []);
+
+  /*
+   * Consoles and TV browsers drop fullscreen a beat after it is granted — the
+   * on-screen keyboard, a focus change inside the embedded client, or the
+   * client requesting fullscreen for itself all release the element MediaDeck
+   * put there. Re-assert it, but only within the transient-activation window
+   * that followed the user's own click, and only a couple of times. A later
+   * exit is the user leaving fullscreen deliberately and is left alone.
+   */
+  useEffect(() => {
+    const handleFullscreenChange = () => {
+      const stage = stageRef.current;
+      if (!stage) return;
+      // Something still holds fullscreen — possibly the stream frame itself,
+      // which is just as fullscreen from the viewer's chair. Leave it be.
+      if (document.fullscreenElement) return;
+      if (!fullscreenIntent.current) return;
+
+      const withinActivationWindow =
+        Date.now() - fullscreenRequestedAt.current < 3000 &&
+        fullscreenRetries.current < 2;
+      if (!withinActivationWindow) {
+        fullscreenIntent.current = false;
+        return;
+      }
+
+      fullscreenRetries.current += 1;
+      void stage.requestFullscreen().catch(() => {
+        fullscreenIntent.current = false;
+      });
+    };
+
+    document.addEventListener('fullscreenchange', handleFullscreenChange);
+    return () =>
+      document.removeEventListener('fullscreenchange', handleFullscreenChange);
+  }, []);
+
+  // Never leave the shell stuck in fullscreen after the viewer closes.
+  useEffect(
+    () => () => {
+      fullscreenIntent.current = false;
+      releaseKeyboardGuard.current?.();
+      releaseKeyboardGuard.current = null;
+      if (document.fullscreenElement) {
+        void document.exitFullscreen().catch(() => {
+          // The viewer is unmounting either way.
+        });
+      }
+    },
+    [],
+  );
 
   const openMobileKeyboard = useCallback(() => {
     try {
@@ -647,6 +744,16 @@ function YouTubeView({
 
       keyboardInput.removeAttribute('aria-hidden');
       keyboardInput.value = '';
+      // The only sanctioned way past the on-screen-keyboard guard. Suppression
+      // returns as soon as the field is dismissed.
+      restoreElementKeyboard(keyboardInput);
+      keyboardInput.addEventListener(
+        'blur',
+        () => {
+          suppressElementKeyboard(keyboardInput);
+        },
+        { once: true },
+      );
       keyboardInput.focus({ preventScroll: true });
       setKeyboardError(null);
     } catch {

@@ -4,6 +4,7 @@ import axe from 'axe-core';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { App } from './App';
+import { restoreElementKeyboard, suppressElementKeyboard } from './frame-keyboard';
 import { createSessionId } from './session-identity';
 
 const profile = {
@@ -38,6 +39,111 @@ function jsonResponse(body: unknown, status = 200): Response {
 function requestUrl(input: RequestInfo | URL): string {
   if (typeof input === 'string') return input;
   return input instanceof URL ? input.href : input.url;
+}
+
+/*
+ * jsdom ships no Fullscreen API, so these tests drive a minimal stand-in:
+ * requestFullscreen records the element, exitFullscreen clears it, and both
+ * dispatch fullscreenchange the way a browser does.
+ */
+function stubFullscreen() {
+  let element: Element | null = null;
+
+  // The viewer stage is the only element that requests fullscreen.
+  const requestFullscreen = vi.fn(() => {
+    element = document.querySelector('.youtube-view');
+    document.dispatchEvent(new Event('fullscreenchange'));
+    return Promise.resolve();
+  });
+  const exitFullscreen = vi.fn(() => {
+    element = null;
+    document.dispatchEvent(new Event('fullscreenchange'));
+    return Promise.resolve();
+  });
+
+  Object.defineProperty(document, 'fullscreenElement', {
+    configurable: true,
+    get: () => element,
+  });
+  Object.defineProperty(Element.prototype, 'requestFullscreen', {
+    configurable: true,
+    value: requestFullscreen,
+    writable: true,
+  });
+  Object.defineProperty(document, 'exitFullscreen', {
+    configurable: true,
+    value: exitFullscreen,
+    writable: true,
+  });
+
+  return {
+    exitFullscreen,
+    requestFullscreen,
+    setElement(next: Element | null) {
+      element = next;
+    },
+    /** The console releases the element without the viewer asking. */
+    dropExternally() {
+      element = null;
+      document.dispatchEvent(new Event('fullscreenchange'));
+    },
+    async enter() {
+      fireEvent.click(screen.getByRole('button', { name: 'Enter fullscreen' }));
+      await waitFor(() => expect(requestFullscreen).toHaveBeenCalled());
+    },
+  };
+}
+
+/** Launches a running YouTube session and returns its frame and controls. */
+async function openViewer() {
+  const fetchMock = mockApi();
+  fetchMock.mockImplementation((input: RequestInfo | URL) => {
+    const url = requestUrl(input);
+    if (url.endsWith('/api/v1/applications/youtube/launch')) {
+      return Promise.resolve(jsonResponse(runningSession));
+    }
+    if (url.endsWith(`/api/v1/sessions/${runningSession.id}/stop`)) {
+      return Promise.resolve(
+        jsonResponse({
+          ...runningSession,
+          endedAt: '2026-07-28T12:10:00.000Z',
+          status: 'stopped',
+        }),
+      );
+    }
+    if (url.endsWith('/api/v1/health')) {
+      return Promise.resolve(
+        jsonResponse({
+          service: 'mediadeck-api',
+          status: 'ok',
+          timestamp: '2026-07-28T12:00:00.000Z',
+          uptimeSeconds: 10,
+          version: '0.1.0-test',
+        }),
+      );
+    }
+    if (url.endsWith('/api/v1/profiles')) {
+      return Promise.resolve(jsonResponse({ profiles: [profile] }));
+    }
+    return Promise.resolve(jsonResponse({ message: 'Not found' }, 404));
+  });
+
+  const fullscreen = stubFullscreen();
+  const user = userEvent.setup();
+  render(<App />);
+  await user.click(await screen.findByRole('button', { name: /Tommy/ }));
+  await user.click(screen.getByRole('button', { name: 'Launch YouTube' }));
+
+  const streamFrame = await screen.findByTitle<HTMLIFrameElement>(
+    'YouTube Brave stream for Tommy',
+  );
+  const frameDocument = streamFrame.contentDocument!;
+  frameDocument.open();
+  frameDocument.write('<!doctype html><html><body><div id="app"></div></body></html>');
+  frameDocument.close();
+  fireEvent.load(streamFrame);
+
+  return { fetchMock, frameDocument, fullscreen, streamFrame, user };
 }
 
 function mockApi(
@@ -218,6 +324,11 @@ afterEach(() => {
   cleanup();
   sessionStorage.clear();
   vi.unstubAllGlobals();
+  vi.restoreAllMocks();
+  // stubFullscreen() defines these directly, so they need removing by hand.
+  Reflect.deleteProperty(document, 'fullscreenElement');
+  Reflect.deleteProperty(document, 'exitFullscreen');
+  Reflect.deleteProperty(Element.prototype, 'requestFullscreen');
 });
 
 describe('MediaDeck application shell', () => {
@@ -625,5 +736,105 @@ describe('MediaDeck application shell', () => {
     expect(launch).toBeDisabled();
     expect(screen.getByText('All streams busy')).toBeInTheDocument();
     expect(screen.getByText(/running 2 of 2 streams/)).toBeInTheDocument();
+  });
+
+  it('re-asserts fullscreen when the client drops it moments later', async () => {
+    const { fullscreen, user } = await openViewer();
+    await fullscreen.enter();
+    expect(fullscreen.requestFullscreen).toHaveBeenCalledTimes(1);
+
+    // A console browser releases the element a beat after granting it.
+    fullscreen.dropExternally();
+    expect(fullscreen.requestFullscreen).toHaveBeenCalledTimes(2);
+
+    fullscreen.dropExternally();
+    expect(fullscreen.requestFullscreen).toHaveBeenCalledTimes(3);
+
+    // Bounded: MediaDeck stops fighting after two recoveries.
+    fullscreen.dropExternally();
+    expect(fullscreen.requestFullscreen).toHaveBeenCalledTimes(3);
+    expect(user).toBeDefined();
+  });
+
+  it('does not fight a deliberate fullscreen exit', async () => {
+    const { fullscreen } = await openViewer();
+    await fullscreen.enter();
+    expect(fullscreen.requestFullscreen).toHaveBeenCalledTimes(1);
+
+    // Later than the transient-activation window: the viewer left on purpose.
+    const later = Date.now() + 5000;
+    vi.spyOn(Date, 'now').mockReturnValue(later);
+    fullscreen.dropExternally();
+    expect(fullscreen.requestFullscreen).toHaveBeenCalledTimes(1);
+  });
+
+  it('treats Back as leaving fullscreen before it stops the session', async () => {
+    const { fetchMock, fullscreen } = await openViewer();
+    await fullscreen.enter();
+
+    fireEvent.keyDown(window, { key: 'Escape' });
+    await waitFor(() => expect(fullscreen.exitFullscreen).toHaveBeenCalledTimes(1));
+    expect(fetchMock).not.toHaveBeenCalledWith(
+      `/api/v1/sessions/${runningSession.id}/stop`,
+      expect.objectContaining({ method: 'POST' }),
+    );
+
+    // A second Back, now windowed, ends the session.
+    fullscreen.setElement(null);
+    fireEvent.keyDown(window, { key: 'Escape' });
+    await waitFor(() =>
+      expect(fetchMock).toHaveBeenCalledWith(
+        `/api/v1/sessions/${runningSession.id}/stop`,
+        expect.objectContaining({ method: 'POST' }),
+      ),
+    );
+  });
+
+  it('keeps the console on-screen keyboard closed until it is asked for', async () => {
+    const { frameDocument } = await openViewer();
+
+    // The embedded client focuses a hidden capture field on every pointer
+    // press, which is what a controller's A button becomes on a console.
+    const captureField = frameDocument.createElement('input');
+    captureField.id = 'overlayInput';
+    frameDocument.body.append(captureField);
+    await waitFor(() => expect(captureField).toHaveAttribute('inputmode', 'none'));
+
+    // Focus is deliberately left alone so the client keeps capturing keys.
+    captureField.focus();
+    expect(frameDocument.activeElement).toBe(captureField);
+
+    // Non-text controls are never touched.
+    const playButton = frameDocument.createElement('button');
+    frameDocument.body.append(playButton);
+    await waitFor(() => expect(playButton).not.toHaveAttribute('inputmode'));
+
+    // The explicit Keyboard control lifts the suppression, then restores it.
+    const keyboardInput = frameDocument.createElement('input');
+    keyboardInput.id = 'keyboard-input-assist';
+    keyboardInput.setAttribute('aria-hidden', 'true');
+    frameDocument.body.append(keyboardInput);
+    await waitFor(() => expect(keyboardInput).toHaveAttribute('inputmode', 'none'));
+
+    fireEvent.click(
+      screen.getByRole('button', { hidden: true, name: 'Open mobile keyboard' }),
+    );
+    expect(keyboardInput).not.toHaveAttribute('inputmode');
+    expect(keyboardInput).not.toHaveAttribute('aria-hidden');
+    expect(frameDocument.activeElement).toBe(keyboardInput);
+
+    fireEvent.blur(keyboardInput);
+    expect(keyboardInput).toHaveAttribute('inputmode', 'none');
+  });
+
+  it('restores a text field to its own input mode rather than clearing it', () => {
+    const host = document.createElement('input');
+    host.setAttribute('inputmode', 'numeric');
+
+    suppressElementKeyboard(host);
+    expect(host).toHaveAttribute('inputmode', 'none');
+
+    restoreElementKeyboard(host);
+    expect(host).toHaveAttribute('inputmode', 'numeric');
   });
 });

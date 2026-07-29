@@ -1734,14 +1734,12 @@ code {
   pointer-events: none;
 }
 
+/* The viewer suppresses the client's automatic on-screen keyboard, so this is
+   the only way to type on a console, TV, or touch device. A media query cannot
+   identify those reliably — a console browser reports a fine, hovering pointer
+   because it draws a cursor — so the control stays available everywhere. */
 .stream-keyboard-control {
-  display: none;
-}
-
-@media (hover: none), (pointer: coarse) {
-  .stream-keyboard-control {
-    display: inline-flex;
-  }
+  display: inline-flex;
 }
 
 .stream-state-layer {
