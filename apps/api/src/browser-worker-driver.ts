@@ -217,6 +217,7 @@ export class DockerBrowserWorkerDriver implements BrowserWorkerDriver {
     const hardwareAcceleration = gpuMode === 'dri';
     const braveArguments = [
       `--app=${launchUrl}`,
+      '--start-maximized',
       '--no-first-run',
       '--disable-session-crashed-bubble',
       ...(disableAv1Playback
@@ -234,6 +235,7 @@ export class DockerBrowserWorkerDriver implements BrowserWorkerDriver {
             'HARDEN_OPENBOX=true',
             `BRAVE_CLI=${braveArguments}`,
             'NO_DECOR=true',
+            'NO_FULL=true',
             `PGID=${this.config.pgid}`,
             'PIXELFLUX_WAYLAND=true',
             `PUID=${this.config.puid}`,

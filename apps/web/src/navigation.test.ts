@@ -1,6 +1,10 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { getGamepadAction, moveFocus } from './navigation';
+import {
+  getGamepadAction,
+  moveFocus,
+  remoteSessionCapturesGamepad,
+} from './navigation';
 
 function gamepad({
   axes = [0, 0],
@@ -38,6 +42,25 @@ describe('gamepad input mapping', () => {
     expect(getGamepadAction(gamepad({ axes: [-0.8, 0] }))).toBe('left');
     expect(getGamepadAction(gamepad({ axes: [0, 0.8] }))).toBe('down');
     expect(getGamepadAction(gamepad({ axes: [0.3, -0.3] }))).toBeNull();
+  });
+});
+
+describe('remote session gamepad capture', () => {
+  it('keeps remote actions out of the MediaDeck shell while preserving Back', () => {
+    const root = document.createElement('div');
+    const remote = document.createElement('section');
+    remote.dataset.gamepadCapture = 'true';
+    root.append(remote);
+
+    expect(remoteSessionCapturesGamepad('select', root)).toBe(true);
+    expect(remoteSessionCapturesGamepad('right', root)).toBe(true);
+    expect(remoteSessionCapturesGamepad('back', root)).toBe(false);
+  });
+
+  it('leaves shell navigation active before remote input is captured', () => {
+    expect(remoteSessionCapturesGamepad('select', document.createElement('div'))).toBe(
+      false,
+    );
   });
 });
 

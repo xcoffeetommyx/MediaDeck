@@ -581,6 +581,7 @@ function YouTubeView({
 
   const enterStream = useCallback(() => {
     setEntered(true);
+    iframeRef.current?.focus({ preventScroll: true });
     const frameDocument = iframeRef.current?.contentDocument;
     frameDocument?.querySelector<HTMLButtonElement>('#playButton')?.click();
     (
@@ -675,6 +676,7 @@ function YouTubeView({
   return (
     <section
       className="youtube-view"
+      data-gamepad-capture={entered && frameLoaded ? 'true' : undefined}
       aria-label={`YouTube for ${profileName}`}
       ref={stageRef}
     >

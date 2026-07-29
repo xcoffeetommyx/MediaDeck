@@ -5,6 +5,15 @@ export type GamepadAction = 'back' | 'down' | 'left' | 'right' | 'select' | 'up'
 
 const focusableSelector = '[data-focusable="true"]:not(:disabled)';
 
+export function remoteSessionCapturesGamepad(
+  action: GamepadAction,
+  root: ParentNode = document,
+): boolean {
+  return (
+    action !== 'back' && root.querySelector('[data-gamepad-capture="true"]') !== null
+  );
+}
+
 export function getGamepadAction(gamepad: Gamepad): GamepadAction | null {
   if (gamepad.buttons[0]?.pressed) return 'select';
   if (gamepad.buttons[1]?.pressed) return 'back';
@@ -155,6 +164,11 @@ export function useInputNavigation({ onBack }: { onBack: () => void }): {
     let lastConnected = false;
 
     const invokeAction = (action: GamepadAction) => {
+      // Selkies reads the same physical gamepad from inside its iframe. Once
+      // the remote session owns input, do not also activate MediaDeck controls
+      // behind it. Keep B/Back reserved for returning to the shell.
+      if (remoteSessionCapturesGamepad(action)) return;
+
       if (action === 'back') {
         onBackRef.current();
       } else if (action === 'select') {

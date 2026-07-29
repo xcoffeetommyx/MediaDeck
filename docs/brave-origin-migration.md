@@ -44,9 +44,14 @@ compatibility shim remains an internal worker component and appears only when
 the compatibility setting is enabled.
 
 Brave launches as a chromeless application window rather than Chromium kiosk
-mode. LinuxServer's desktop layer remains responsible for filling the remote
-display, while YouTube can enter and leave its own player fullscreen without
-competing with a browser-level kiosk fullscreen state.
+mode. It starts maximized while LinuxServer's automatic application fullscreen
+behavior is disabled with `NO_FULL=true`. This lets YouTube enter and leave its
+own player fullscreen without competing with a window-manager fullscreen state.
+
+Once the stream is entered, Selkies exclusively owns directional and select
+gamepad input. MediaDeck retains the B/Back action for leaving the session. This
+prevents Xbox controller actions from also activating focused shell controls,
+including the touch keyboard helper.
 
 Settings also provides independent 1080p, 720p, and 480p remote-display
 presets. New sessions default to 1080p; lower resolutions reduce the number of

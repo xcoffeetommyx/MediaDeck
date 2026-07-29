@@ -316,8 +316,9 @@ it('uses DRI automatically and falls back to software when the device is unavail
   expect(hardware.Env).toContain('LIBVA_DRIVER_NAME=i965');
   expect(hardware.Env).toContain('LIBVA_DRIVERS_PATH=/usr/lib/x86_64-linux-gnu/dri');
   expect(hardware.Env).toContain(
-    'BRAVE_CLI=--app=https://www.youtube.com/ --no-first-run --disable-session-crashed-bubble --load-extension=/opt/mediadeck/extensions/disable-av1',
+    'BRAVE_CLI=--app=https://www.youtube.com/ --start-maximized --no-first-run --disable-session-crashed-bubble --load-extension=/opt/mediadeck/extensions/disable-av1',
   );
+  expect(hardware.Env).toContain('NO_FULL=true');
   expect(hardware.Env.some((value) => value.startsWith('FIREFOX_CLI='))).toBe(false);
   expect(hardware.Env).toContain('SELKIES_MANUAL_HEIGHT=720');
   expect(hardware.Env).toContain('SELKIES_MANUAL_WIDTH=1280');
