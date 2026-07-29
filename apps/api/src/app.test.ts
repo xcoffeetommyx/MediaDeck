@@ -29,6 +29,7 @@ import { MediaDeckStore } from './store.js';
 let dataDirectory: string;
 
 class TestBrowserWorkerDriver implements BrowserWorkerDriver {
+  readonly starts: StartBrowserWorkerInput[] = [];
   getStreamTarget(sessionId: string): URL {
     return new URL(`http://worker-${sessionId}:3000`);
   }
@@ -52,8 +53,9 @@ class TestBrowserWorkerDriver implements BrowserWorkerDriver {
     });
   }
 
-  start({ sessionId }: StartBrowserWorkerInput): Promise<{ workerId: string }> {
-    return Promise.resolve({ workerId: `worker-${sessionId}` });
+  start(input: StartBrowserWorkerInput): Promise<{ workerId: string }> {
+    this.starts.push(input);
+    return Promise.resolve({ workerId: `worker-${input.sessionId}` });
   }
 
   stop(): Promise<void> {
@@ -349,6 +351,56 @@ describe('MediaDeck API', () => {
       streamUrl: `/stream/${sessionId}/`,
     });
     expect(browserSessionSchema.parse(secondLaunch.json()).id).toBe(sessionId);
+
+    await app.close();
+  });
+
+  it('applies stream quality presets to new sessions and locks changes while active', async () => {
+    const driver = new TestBrowserWorkerDriver();
+    const app = await buildApplication({
+      config: createConfig(),
+      logger: false,
+      workerDriver: driver,
+    });
+
+    const initial = await app.inject({
+      method: 'GET',
+      url: '/api/v1/settings',
+    });
+    expect(initial.json()).toMatchObject({ streamQualityPreset: 'high-quality' });
+
+    const updated = await app.inject({
+      method: 'PATCH',
+      payload: { streamQualityPreset: 'balanced' },
+      url: '/api/v1/settings',
+    });
+    expect(updated.json()).toMatchObject({ streamQualityPreset: 'balanced' });
+
+    const launch = await app.inject({
+      method: 'POST',
+      payload: {
+        accessToken: 'q'.repeat(43),
+        kind: 'guest',
+        sessionId: '7bf3d4e3-8ea9-4b7a-94e9-61123413672c',
+      },
+      url: '/api/v1/applications/youtube/launch',
+    });
+    expect(launch.statusCode).toBe(200);
+    expect(driver.starts.at(-1)).toMatchObject({
+      framerate: 30,
+      videoBitrate: 6,
+    });
+
+    const blocked = await app.inject({
+      method: 'PATCH',
+      payload: { streamQualityPreset: 'smooth' },
+      url: '/api/v1/settings',
+    });
+    expect(blocked.statusCode).toBe(409);
+    expect(blocked.json()).toMatchObject({
+      error: 'conflict',
+      message: 'Stop active Firefox sessions before changing stream quality',
+    });
 
     await app.close();
   });

@@ -58,17 +58,20 @@ Every Docker worker receives:
   `BROWSER_WORKER_MEMORY_MB`
 - `PidsLimit` from `BROWSER_WORKER_PIDS_LIMIT`
 - `/dev/shm` sizing from `BROWSER_WORKER_SHM_MB`
-- the configured encoded-video ceiling from `BROWSER_VIDEO_BITRATE`
+- the encoded-video ceiling selected by the administrator's stream-quality
+  preset
 
 The protected resource report samples Docker's non-streaming stats endpoint.
 It exposes per-session CPU percentage, current and limited memory, network
 receive/transmit counters, process count, GPU mode/device, and video bitrate
 without exposing a Docker worker ID or internal address.
 
-Software x264 remains the portable default. `BROWSER_WORKER_GPU_MODE=dri`
-assigns the configured Intel/AMD render node and allows Selkies to use its
-Wayland/VA-API path. GPU utilization percentages are host/vendor-specific and
-are not claimed; the report makes device assignment and mode observable.
+`BROWSER_WORKER_GPU_MODE=auto` assigns the configured Intel/AMD render node and
+allows Selkies to use its Wayland/VA-API path. If Docker reports that the node is
+absent or inaccessible, MediaDeck retries that worker in software mode.
+`software` forces CPU encoding and `dri` requires hardware without fallback.
+GPU utilization percentages are host/vendor-specific and are not claimed; the
+report makes the actual device assignment and mode observable.
 
 ## APIs
 

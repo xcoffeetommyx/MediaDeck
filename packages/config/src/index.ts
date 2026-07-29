@@ -28,7 +28,7 @@ const serverEnvironmentSchema = z.object({
   ADDON_WATCH_INTERVAL_SECONDS: z.coerce.number().int().min(30).max(3600).default(60),
   APP_VERSION: z.string().min(1).default('0.1.0'),
   BROWSER_DATA_VOLUME: z.string().min(1).default('mediadeck-data'),
-  BROWSER_FRAMERATE: z.coerce.number().int().min(8).max(120).default(60),
+  BROWSER_FRAMERATE: z.coerce.number().int().min(8).max(120).default(30),
   BROWSER_PGID: z.coerce.number().int().min(0).max(65_535).default(1000),
   BROWSER_PUID: z.coerce
     .number()
@@ -50,10 +50,10 @@ const serverEnvironmentSchema = z.object({
     .max(86_400)
     .default(1800),
   BROWSER_START_URL: httpUrl.default('https://www.youtube.com/'),
-  BROWSER_VIDEO_BITRATE: z.coerce.number().int().min(1).max(100).default(12),
+  BROWSER_VIDEO_BITRATE: z.coerce.number().int().min(1).max(100).default(6),
   BROWSER_WORKER_CPUS: z.coerce.number().min(0.25).max(16).default(2),
   BROWSER_WORKER_DRIVER: z.enum(['disabled', 'docker']).default('disabled'),
-  BROWSER_WORKER_GPU_MODE: z.enum(['software', 'dri']).default('software'),
+  BROWSER_WORKER_GPU_MODE: z.enum(['auto', 'software', 'dri']).default('auto'),
   BROWSER_WORKER_IMAGE: z.string().min(1).default(browserWorkerImage),
   BROWSER_WORKER_MEMORY_MB: z.coerce.number().int().min(512).max(32_768).default(2048),
   BROWSER_WORKER_NETWORK: z.string().min(1).default('mediadeck_default'),

@@ -29,6 +29,7 @@ type SessionManagerOptions = {
   healthIntervalSeconds: number;
   idleTimeoutSeconds: number;
   maxSessions: number;
+  getStreamQuality?: () => StreamQuality;
   now?: () => Date;
   onMonitorError?: (error: unknown) => void;
   operations?: OperationCoordinator;
@@ -37,6 +38,11 @@ type SessionManagerOptions = {
   store: MediaDeckStore;
   workerDriver: BrowserWorkerDriver;
   workerConfig: BrowserWorkerConfig;
+};
+
+type StreamQuality = {
+  framerate: number;
+  videoBitrate: number;
 };
 
 type StartBrowserSessionInput =
@@ -79,6 +85,7 @@ function hashAccessToken(token: string): string {
 export class SessionManager {
   readonly #applications: ApplicationRegistry;
   readonly #healthIntervalMilliseconds: number;
+  readonly #getStreamQuality: () => StreamQuality;
   readonly #idleTimeoutMilliseconds: number;
   readonly #maxSessions: number;
   readonly #now: () => Date;
@@ -97,6 +104,7 @@ export class SessionManager {
     healthIntervalSeconds,
     idleTimeoutSeconds,
     maxSessions,
+    getStreamQuality,
     now = () => new Date(),
     onMonitorError = () => undefined,
     operations = new OperationCoordinator(),
@@ -108,6 +116,12 @@ export class SessionManager {
   }: SessionManagerOptions) {
     this.#applications = applications;
     this.#healthIntervalMilliseconds = healthIntervalSeconds * 1000;
+    this.#getStreamQuality =
+      getStreamQuality ??
+      (() => ({
+        framerate: workerConfig.framerate,
+        videoBitrate: workerConfig.videoBitrate,
+      }));
     this.#idleTimeoutMilliseconds = idleTimeoutSeconds * 1000;
     this.#maxSessions = maxSessions;
     this.#now = now;
@@ -268,6 +282,7 @@ export class SessionManager {
 
   async resources(): Promise<BrowserResourceReport> {
     const sampledAt = this.#now().toISOString();
+    const streamQuality = this.#getStreamQuality();
     const sessions = await Promise.all(
       this.#store.listActiveSessions().map(async (session) => {
         const metrics = session.workerId
@@ -276,11 +291,10 @@ export class SessionManager {
         return {
           cpuPercent: metrics?.cpuPercent ?? null,
           gpu: {
-            device:
-              this.#workerConfig.gpuMode === 'dri'
-                ? this.#workerConfig.driDevice
-                : null,
-            mode: this.#workerConfig.gpuMode,
+            device: metrics?.gpuDevice ?? null,
+            mode:
+              metrics?.gpuMode ??
+              (this.#workerConfig.gpuMode === 'software' ? 'software' : 'dri'),
           },
           memoryBytes: metrics?.memoryBytes ?? 0,
           memoryLimitBytes:
@@ -293,7 +307,7 @@ export class SessionManager {
           sampledAt,
           sessionId: session.id,
           status: session.status,
-          videoBitrateMbps: this.#workerConfig.videoBitrate,
+          videoBitrateMbps: streamQuality.videoBitrate,
         };
       }),
     );
@@ -305,7 +319,7 @@ export class SessionManager {
         memoryBytes: this.#workerConfig.memoryMegabytes * 1024 * 1024,
         pids: this.#workerConfig.pidsLimit,
         sharedMemoryBytes: this.#workerConfig.sharedMemoryMegabytes * 1024 * 1024,
-        videoBitrateMbps: this.#workerConfig.videoBitrate,
+        videoBitrateMbps: streamQuality.videoBitrate,
       },
       sampledAt,
       sessions,
@@ -589,7 +603,9 @@ export class SessionManager {
     if (session.kind === 'profile' && session.profileId) {
       await this.#prepareProfileAddons(session.profileId);
     }
+    const streamQuality = this.#getStreamQuality();
     const { workerId } = await this.#workerDriver.start({
+      framerate: streamQuality.framerate,
       kind: session.kind,
       launchUrl: this.#applications.require(session.applicationId).launchUrl,
       ...(session.kind === 'profile'
@@ -599,6 +615,7 @@ export class SessionManager {
         : {}),
       sessionId: session.id,
       storagePath: session.storagePath,
+      videoBitrate: streamQuality.videoBitrate,
     });
     const timestamp = this.#now().toISOString();
     try {

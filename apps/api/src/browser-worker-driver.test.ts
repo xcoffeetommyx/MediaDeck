@@ -133,10 +133,12 @@ it('pulls a missing digest-pinned worker image once for concurrent starts', asyn
       '51ba5929-24a0-4a09-925c-3f215a607e27',
     ].map((sessionId) =>
       driver.start({
+        framerate: 30,
         kind: 'guest',
         launchUrl: 'https://www.youtube.com/',
         sessionId,
         storagePath: `runtime/guests/${sessionId}/firefox`,
+        videoBitrate: 6,
       }),
     ),
   );
@@ -176,12 +178,128 @@ it('reports an error embedded in a Docker image pull stream', async () => {
   const driver = new DockerBrowserWorkerDriver(workerConfig(path));
   await expect(
     driver.start({
+      framerate: 30,
       kind: 'guest',
       launchUrl: 'https://www.youtube.com/',
       sessionId: '2abfc294-b100-48e1-93ad-bd34718e9a97',
       storagePath: 'runtime/guests/2abfc294-b100-48e1-93ad-bd34718e9a97/firefox',
+      videoBitrate: 6,
     }),
   ).rejects.toThrow(
     'Docker Engine could not pull the browser worker image: registry denied the pull',
   );
+});
+
+it('uses DRI automatically and falls back to software when the device is unavailable', async () => {
+  const path = await socketPath();
+  const encodedImage = encodeURIComponent(workerImage);
+  const createBodies: Record<string, unknown>[] = [];
+  let createSequence = 0;
+
+  await listen(
+    createServer((request, response) => {
+      const requestPath = request.url ?? '';
+
+      if (request.method === 'GET' && requestPath === `/images/${encodedImage}/json`) {
+        response.statusCode = 200;
+        response.end('{}');
+        return;
+      }
+
+      if (request.method === 'DELETE' && requestPath.startsWith('/containers/')) {
+        response.statusCode = 204;
+        response.end();
+        return;
+      }
+
+      if (request.method === 'POST' && requestPath.startsWith('/containers/create?')) {
+        const chunks: Buffer[] = [];
+        request.on('data', (chunk: Buffer) => chunks.push(chunk));
+        request.on('end', () => {
+          createBodies.push(
+            JSON.parse(Buffer.concat(chunks).toString('utf8')) as Record<
+              string,
+              unknown
+            >,
+          );
+          createSequence += 1;
+          response.statusCode = 201;
+          response.end(
+            JSON.stringify({
+              Id: createSequence === 1 ? 'hardware-worker' : 'software-worker',
+            }),
+          );
+        });
+        return;
+      }
+
+      if (
+        request.method === 'POST' &&
+        requestPath === '/containers/hardware-worker/start'
+      ) {
+        response.statusCode = 500;
+        response.end(
+          JSON.stringify({
+            message:
+              'error gathering device information while adding custom device "/dev/dri/renderD128": no such file or directory',
+          }),
+        );
+        return;
+      }
+
+      if (
+        request.method === 'POST' &&
+        requestPath === '/containers/software-worker/start'
+      ) {
+        response.statusCode = 204;
+        response.end();
+        return;
+      }
+
+      if (
+        request.method === 'POST' &&
+        requestPath === '/containers/hardware-worker/stop?t=10'
+      ) {
+        response.statusCode = 204;
+        response.end();
+        return;
+      }
+
+      response.statusCode = 500;
+      response.end(JSON.stringify({ message: `Unexpected ${request.method} request` }));
+    }),
+    path,
+  );
+
+  const config = workerConfig(path);
+  config.gpuMode = 'auto';
+  const driver = new DockerBrowserWorkerDriver(config);
+  await expect(
+    driver.start({
+      framerate: 30,
+      kind: 'guest',
+      launchUrl: 'https://www.youtube.com/',
+      sessionId: '2abfc294-b100-48e1-93ad-bd34718e9a97',
+      storagePath: 'runtime/guests/2abfc294-b100-48e1-93ad-bd34718e9a97/firefox',
+      videoBitrate: 6,
+    }),
+  ).resolves.toEqual({ workerId: 'software-worker' });
+
+  const hardware = createBodies[0] as {
+    Env: string[];
+    HostConfig: { Devices?: unknown[] };
+    Labels: Record<string, string>;
+  };
+  const software = createBodies[1] as {
+    Env: string[];
+    HostConfig: { Devices?: unknown[] };
+    Labels: Record<string, string>;
+  };
+  expect(hardware.Env).toContain('AUTO_GPU=true');
+  expect(hardware.Env).toContain('SELKIES_USE_CPU=false|locked');
+  expect(hardware.HostConfig.Devices).toHaveLength(1);
+  expect(hardware.Labels['io.mediadeck.gpu.mode']).toBe('dri');
+  expect(software.Env).toContain('SELKIES_USE_CPU=true|locked');
+  expect(software.HostConfig.Devices).toBeUndefined();
+  expect(software.Labels['io.mediadeck.gpu.mode']).toBe('software');
 });

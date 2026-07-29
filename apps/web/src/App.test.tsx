@@ -63,6 +63,11 @@ function mockApi(
     version: string;
   }[] = [],
 ) {
+  let settings = {
+    automaticUpdateChecks: true,
+    backupRetentionCount: 5,
+    streamQualityPreset: 'balanced',
+  };
   const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
     const url = requestUrl(input);
     if (url.endsWith('/api/v1/health')) {
@@ -106,12 +111,13 @@ function mockApi(
       );
     }
     if (url.endsWith('/api/v1/settings')) {
-      return Promise.resolve(
-        jsonResponse({
-          automaticUpdateChecks: true,
-          backupRetentionCount: 5,
-        }),
-      );
+      if (init?.method === 'PATCH' && typeof init.body === 'string') {
+        settings = {
+          ...settings,
+          ...(JSON.parse(init.body) as Partial<typeof settings>),
+        };
+      }
+      return Promise.resolve(jsonResponse(settings));
     }
     if (url.endsWith('/api/v1/operations/diagnostics')) {
       return Promise.resolve(
@@ -292,6 +298,32 @@ describe('MediaDeck application shell', () => {
     expect(screen.getByRole('button', { name: 'Create backup' })).toBeInTheDocument();
     expect(
       screen.getByRole('button', { name: 'Run recovery check' }),
+    ).toBeInTheDocument();
+  });
+
+  it('changes the stream quality preset from settings', async () => {
+    const fetchMock = mockApi();
+    const user = userEvent.setup();
+    render(<App />);
+
+    await user.click(await screen.findByRole('button', { name: /Tommy/ }));
+    await user.click(screen.getByRole('button', { name: /Settings/ }));
+    await user.click(
+      await screen.findByRole('button', {
+        name: /Data saver/i,
+      }),
+    );
+
+    expect(
+      fetchMock.mock.calls.some(
+        ([input, init]) =>
+          requestUrl(input).endsWith('/api/v1/settings') &&
+          init?.method === 'PATCH' &&
+          init.body === JSON.stringify({ streamQualityPreset: 'data-saver' }),
+      ),
+    ).toBe(true);
+    expect(
+      await screen.findByText(/Data saver stream quality saved/i),
     ).toBeInTheDocument();
   });
 

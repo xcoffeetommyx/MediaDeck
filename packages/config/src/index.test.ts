@@ -10,6 +10,11 @@ describe('server configuration', () => {
 
     expect(config).toMatchObject({
       appVersion: '0.1.0',
+      browserWorker: {
+        framerate: 30,
+        gpuMode: 'auto',
+        videoBitrate: 6,
+      },
       host: '0.0.0.0',
       nodeEnvironment: 'development',
       port: 3000,

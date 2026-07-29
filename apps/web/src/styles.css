@@ -1027,6 +1027,62 @@ code {
   line-height: 1.55;
 }
 
+.quality-preset-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.7rem;
+}
+
+.quality-preset {
+  display: grid;
+  min-height: 8.5rem;
+  padding: 1rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--surface-raised);
+  color: var(--text-secondary);
+  font: inherit;
+  gap: 0.25rem;
+  text-align: left;
+  transition:
+    border-color 140ms ease,
+    background 140ms ease,
+    transform 140ms ease;
+}
+
+.quality-preset:hover:not(:disabled) {
+  border-color: var(--line-strong);
+  transform: translateY(-1px);
+}
+
+.quality-preset[aria-pressed='true'] {
+  border-color: var(--positive-line);
+  background: var(--positive-soft);
+}
+
+.quality-preset strong {
+  color: var(--text-primary);
+  font-size: 0.9rem;
+}
+
+.quality-preset span {
+  color: var(--text-secondary);
+  font-size: 0.77rem;
+  font-weight: 680;
+}
+
+.quality-preset small {
+  align-self: end;
+  color: var(--text-quiet);
+  font-size: 0.72rem;
+  line-height: 1.4;
+}
+
+.quality-preset:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
 /* One empty-state treatment everywhere, so "nothing here" always looks
    deliberate rather than broken. */
 .operation-empty {
@@ -1822,6 +1878,10 @@ code {
   .operation-card-wide {
     grid-column: auto;
   }
+
+  .quality-preset-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
 @media (max-width: 900px) {
@@ -1889,6 +1949,10 @@ code {
   }
 
   .detail-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .quality-preset-grid {
     grid-template-columns: 1fr;
   }
 

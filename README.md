@@ -41,6 +41,8 @@ Stages 1 through 8 establish:
 - Profile locks, idle shutdown, health monitoring, and crash recovery
 - Docker workers keyed by opaque session IDs
 - Automatic digest-pinned Firefox worker pulls on clean hosts
+- Automatic Intel/AMD DRI hardware encoding with safe software fallback
+- Four administrator-selectable 30/60 FPS stream-quality presets
 - A profile picker backed by the persistent profile API
 - A temporary Guest path and in-app profile creation
 - A controller-first home screen with operational Settings and Updates

@@ -315,9 +315,17 @@ export type SetAdministratorPinRequest = z.infer<
   typeof setAdministratorPinRequestSchema
 >;
 
+export const streamQualityPresetSchema = z.enum([
+  'data-saver',
+  'balanced',
+  'smooth',
+  'high-quality',
+]);
+
 export const administratorSettingsSchema = z.object({
   automaticUpdateChecks: z.boolean(),
   backupRetentionCount: z.number().int().min(1).max(20),
+  streamQualityPreset: streamQualityPresetSchema.default('balanced'),
 });
 
 export const updateAdministratorSettingsRequestSchema = administratorSettingsSchema
@@ -327,6 +335,7 @@ export const updateAdministratorSettingsRequestSchema = administratorSettingsSch
   });
 
 export type AdministratorSettings = z.infer<typeof administratorSettingsSchema>;
+export type StreamQualityPreset = z.infer<typeof streamQualityPresetSchema>;
 export type UpdateAdministratorSettingsRequest = z.infer<
   typeof updateAdministratorSettingsRequestSchema
 >;

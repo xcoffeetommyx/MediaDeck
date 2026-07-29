@@ -44,7 +44,8 @@ docker compose -f compose.yaml -f compose.sessions.yaml up --build -d
 MediaDeck creates a worker only when a session is requested. Each worker:
 
 - runs Firefox 153 in the pinned LinuxServer Selkies image
-- uses x264 software encoding by default
+- uses Intel/AMD DRI hardware encoding when the configured render node is
+  available, with automatic software fallback
 - mounts only its persistent profile or temporary Guest subdirectory
 - disables the microphone, clipboard, command execution, sharing, and the
   image's nested Docker daemon; file transfer is download-only
@@ -170,12 +171,27 @@ Common settings:
 | `SESSION_COOKIE_SECURE`         | `true`            | HTTPS-only stream authorization cookie                   |
 | `TRUST_PROXY`                   | `false`           | Fastify proxy trust; enable only for a verified topology |
 
-Browser-worker settings are listed in `.env.example`. Keep
-`BROWSER_VIDEO_BITRATE` and `BROWSER_FRAMERATE` conservative on small hosts.
-For production session workers, `BROWSER_WORKER_GPU_MODE=dri` is Linux-only and
-currently targets an Intel/AMD render node; NVIDIA requires a host-specific
-design. `compose.browser-gpu.yaml` remains only for the Stage 2 diagnostic
-worker and must not be combined with `compose.sessions.yaml`.
+Browser-worker settings are listed in `.env.example`. A fresh deployment starts
+at the Balanced preset (30 FPS / 6 Mbps). Settings provides four presets:
+
+| Preset       | Frame rate | Video ceiling |
+| ------------ | ---------- | ------------- |
+| Data saver   | 30 FPS     | 3 Mbps        |
+| Balanced     | 30 FPS     | 6 Mbps        |
+| Smooth       | 60 FPS     | 6 Mbps        |
+| High quality | 60 FPS     | 12 Mbps       |
+
+The environment frame-rate and bitrate select the initial preset when no
+administrator settings have been saved. Later changes are made in Settings and
+apply to newly created Firefox sessions. MediaDeck requires active sessions to
+be stopped before changing the preset.
+
+For production session workers, `BROWSER_WORKER_GPU_MODE=auto` attempts the
+configured Linux Intel/AMD DRI render node and falls back to software only when
+the device is absent or inaccessible. Use `software` to force CPU encoding or
+`dri` to require the device and fail instead of falling back. NVIDIA requires a
+host-specific design. `compose.browser-gpu.yaml` remains only for the Stage 2
+diagnostic worker and must not be combined with `compose.sessions.yaml`.
 
 `MAX_BROWSER_SESSIONS` defaults to `1`.
 `BROWSER_SESSION_IDLE_TIMEOUT_SECONDS` defaults to `1800`; clients keep an
@@ -190,14 +206,15 @@ For concurrent profiles, size the host first and then raise
 | `BROWSER_WORKER_MEMORY_MB`  | `2048`                | Memory and total memory+swap  |
 | `BROWSER_WORKER_PIDS_LIMIT` | `512`                 | Maximum worker process count  |
 | `BROWSER_WORKER_SHM_MB`     | `1024`                | Firefox shared-memory size    |
-| `BROWSER_WORKER_GPU_MODE`   | `software`            | `software` or Linux `dri`     |
+| `BROWSER_WORKER_GPU_MODE`   | `auto`                | `auto`, `software`, or `dri`  |
 | `BROWSER_DRI_DEVICE`        | `/dev/dri/renderD128` | Intel/AMD render device       |
-| `BROWSER_VIDEO_BITRATE`     | `12`                  | Encoded video ceiling in Mbps |
+| `BROWSER_FRAMERATE`         | `30`                  | Initial stream frame rate     |
+| `BROWSER_VIDEO_BITRATE`     | `6`                   | Initial video ceiling in Mbps |
 
 Capacity is visible before launch. Settings shows protected per-session CPU,
 memory, process, network, GPU-mode, and encoded-bandwidth data. Network values
-are cumulative Docker counters; GPU reporting identifies configured mode and
-device rather than vendor-specific utilization.
+are cumulative Docker counters; GPU reporting identifies the actual worker mode
+and device rather than vendor-specific utilization.
 
 ## Persistent Data
 

@@ -33,7 +33,11 @@ import { ProfileManager } from './profile-manager.js';
 import { registerProfileRoutes } from './profile-routes.js';
 import { registerSessionRoutes } from './session-routes.js';
 import { SessionManager } from './session-manager.js';
-import { SettingsManager } from './settings-manager.js';
+import {
+  inferStreamQualityPreset,
+  SettingsManager,
+  streamQualityPresets,
+} from './settings-manager.js';
 import { ensureStorageLayout } from './storage.js';
 import { MediaDeckStore } from './store.js';
 import { registerStreamGateway } from './stream-gateway.js';
@@ -90,6 +94,17 @@ export async function buildApplication({
   const store = providedStore ?? new MediaDeckStore(paths.databaseFile);
   const workerDriver =
     providedWorkerDriver ?? createBrowserWorkerDriver(config.browserWorker);
+  const settings = new SettingsManager(
+    store,
+    undefined,
+    (error) => {
+      app.log.error(error, 'Settings event logging failed');
+    },
+    inferStreamQualityPreset(
+      config.browserWorker.framerate,
+      config.browserWorker.videoBitrate,
+    ),
+  );
   const applications = new ApplicationRegistry(config.browserWorker.startUrl);
   const operationCoordinator = new OperationCoordinator();
   const addonManager = new AddonManager({
@@ -117,6 +132,7 @@ export async function buildApplication({
       healthIntervalSeconds: config.browserWorker.healthIntervalSeconds,
       idleTimeoutSeconds: config.browserWorker.idleTimeoutSeconds,
       maxSessions: config.browserWorker.maxSessions,
+      getStreamQuality: () => streamQualityPresets[settings.get().streamQualityPreset],
       onMonitorError: (error) => {
         app.log.error(error, 'Browser session monitor failed');
       },
@@ -163,9 +179,6 @@ export async function buildApplication({
           }));
     const administrator = new AdministratorAccess(store, undefined, (error) => {
       app.log.error(error, 'Administrator event logging failed');
-    });
-    const settings = new SettingsManager(store, undefined, (error) => {
-      app.log.error(error, 'Settings event logging failed');
     });
     const backups = new BackupManager(
       config.appVersion,

@@ -12,6 +12,7 @@ import type {
   ProfileAddon,
   ProfileAddonListResponse,
   RestoreBackupResponse,
+  StreamQualityPreset,
   UnlockAdministratorResponse,
   UpdateStatus,
 } from '@mediadeck/contracts';
@@ -33,6 +34,38 @@ import {
 import { ConfirmDialog, type ConfirmRequest } from './Modal';
 
 type Tone = 'bad' | 'good' | 'neutral' | 'pending' | 'warn';
+
+const streamQualityOptions: {
+  description: string;
+  id: StreamQualityPreset;
+  label: string;
+  rate: string;
+}[] = [
+  {
+    description: 'Lowest bandwidth and CPU load.',
+    id: 'data-saver',
+    label: 'Data saver',
+    rate: '30 FPS · 3 Mbps',
+  },
+  {
+    description: 'Recommended for most video.',
+    id: 'balanced',
+    label: 'Balanced',
+    rate: '30 FPS · 6 Mbps',
+  },
+  {
+    description: 'Smoother motion at the same bitrate.',
+    id: 'smooth',
+    label: 'Smooth',
+    rate: '60 FPS · 6 Mbps',
+  },
+  {
+    description: 'Highest motion quality and host load.',
+    id: 'high-quality',
+    label: 'High quality',
+    rate: '60 FPS · 12 Mbps',
+  },
+];
 
 type SettingsViewProperties = {
   controllerConnected: boolean;
@@ -158,6 +191,11 @@ export function SettingsView({
 
   const pinProtected = Boolean(administrator?.pinEnabled);
   const controlsLocked = pinProtected && !authorized(administrator);
+  const activeSessions =
+    resources?.capacity.activeSessions ?? diagnostics?.activeSessions ?? 0;
+  const selectedQuality = streamQualityOptions.find(
+    (option) => option.id === settings?.streamQualityPreset,
+  );
 
   // Confirmations run the same `run` pipeline as direct actions; the dialog
   // only decides whether the request is made.
@@ -608,6 +646,46 @@ export function SettingsView({
           <p className="operation-help">
             When enabled, privileged settings, profile deletion, backup changes,
             restores, and updates require the PIN.
+          </p>
+        </OperationCard>
+
+        <OperationCard
+          badge={selectedQuality?.label ?? 'Balanced'}
+          eyebrow="Streaming"
+          title="Stream quality"
+          wide
+        >
+          <div className="quality-preset-grid">
+            {streamQualityOptions.map((option) => (
+              <button
+                aria-pressed={settings?.streamQualityPreset === option.id}
+                className="quality-preset focusable"
+                data-focusable="true"
+                disabled={
+                  busy !== null || !settings || controlsLocked || activeSessions > 0
+                }
+                key={option.id}
+                onClick={() =>
+                  void run('stream-quality', async () => {
+                    await requestJson('/api/v1/settings', {
+                      body: JSON.stringify({ streamQualityPreset: option.id }),
+                      headers: { 'Content-Type': 'application/json' },
+                      method: 'PATCH',
+                    });
+                    return `${option.label} stream quality saved. New Firefox sessions will use it.`;
+                  })
+                }
+              >
+                <strong>{option.label}</strong>
+                <span>{option.rate}</span>
+                <small>{option.description}</small>
+              </button>
+            ))}
+          </div>
+          <p className="operation-help">
+            {activeSessions > 0
+              ? 'Stop the active Firefox session before changing quality.'
+              : 'MediaDeck uses hardware video acceleration automatically when a compatible DRI device is available, and falls back to software safely.'}
           </p>
         </OperationCard>
 

@@ -7,15 +7,19 @@ export type BrowserWorkerState =
   'starting' | 'running' | 'unhealthy' | 'stopped' | 'missing';
 
 export type StartBrowserWorkerInput = {
+  framerate: number;
   kind: 'profile' | 'guest';
   launchUrl: string;
   policyStoragePath?: string;
   sessionId: string;
   storagePath: string;
+  videoBitrate: number;
 };
 
 export type BrowserWorkerMetrics = {
   cpuPercent: number | null;
+  gpuDevice?: string | null;
+  gpuMode?: 'software' | 'dri';
   memoryBytes: number;
   memoryLimitBytes: number;
   networkReceiveBytes: number;
@@ -124,6 +128,23 @@ function readPullError(responseBody: string): string | undefined {
   return undefined;
 }
 
+function isDriUnavailable(error: unknown, device: string): boolean {
+  if (!(error instanceof DockerEngineError)) return false;
+  const message = error.message.toLowerCase();
+  const referencesDevice =
+    message.includes(device.toLowerCase()) || message.includes('/dev/dri');
+  return (
+    referencesDevice &&
+    [
+      'no such file',
+      'error gathering device information',
+      'not a device',
+      'operation not permitted',
+      'permission denied',
+    ].some((detail) => message.includes(detail))
+  );
+}
+
 function sumNetworkBytes(
   networks: Record<string, unknown> | undefined,
   key: 'rx_bytes' | 'tx_bytes',
@@ -138,6 +159,7 @@ function sumNetworkBytes(
 export class DockerBrowserWorkerDriver implements BrowserWorkerDriver {
   readonly #client: DockerEngineClient;
   #imagePull: Promise<void> | undefined;
+  readonly #workerGpuModes = new Map<string, 'software' | 'dri'>();
 
   constructor(private readonly config: BrowserWorkerConfig) {
     this.#client = new DockerEngineClient(config.dockerSocketPath);
@@ -155,20 +177,39 @@ export class DockerBrowserWorkerDriver implements BrowserWorkerDriver {
     }
   }
 
-  async start({
-    kind,
-    launchUrl,
-    policyStoragePath,
-    sessionId,
-    storagePath,
-  }: StartBrowserWorkerInput): Promise<{ workerId: string }> {
+  async start(input: StartBrowserWorkerInput): Promise<{ workerId: string }> {
+    await this.ensureImageAvailable();
+
+    if (this.config.gpuMode === 'auto') {
+      try {
+        return await this.startWithGpuMode(input, 'dri');
+      } catch (error) {
+        if (!isDriUnavailable(error, this.config.driDevice)) throw error;
+        return this.startWithGpuMode(input, 'software');
+      }
+    }
+
+    return this.startWithGpuMode(input, this.config.gpuMode);
+  }
+
+  private async startWithGpuMode(
+    {
+      framerate,
+      kind,
+      launchUrl,
+      policyStoragePath,
+      sessionId,
+      storagePath,
+      videoBitrate,
+    }: StartBrowserWorkerInput,
+    gpuMode: 'software' | 'dri',
+  ): Promise<{ workerId: string }> {
     const containerName = `mediadeck-worker-${sessionId}`;
     const streamPath = `/stream/${sessionId}/`;
     const memoryBytes = this.config.memoryMegabytes * 1024 * 1024;
     const sharedMemoryBytes = this.config.sharedMemoryMegabytes * 1024 * 1024;
-    const hardwareAcceleration = this.config.gpuMode === 'dri';
+    const hardwareAcceleration = gpuMode === 'dri';
 
-    await this.ensureImageAvailable();
     await this.removeByName(containerName);
 
     const response = parseJsonObject(
@@ -188,19 +229,20 @@ export class DockerBrowserWorkerDriver implements BrowserWorkerDriver {
             'SELKIES_ENABLE_SHARING=false|locked',
             'SELKIES_ENCODER=x264enc',
             'SELKIES_FILE_TRANSFERS=download',
-            `SELKIES_FRAMERATE=${this.config.framerate}`,
+            `SELKIES_FRAMERATE=${framerate}`,
             'SELKIES_GAMEPAD_ENABLED=true|locked',
             'SELKIES_MICROPHONE_ENABLED=false|locked',
             'SELKIES_UI_SHOW_LOGO=false|locked',
             'SELKIES_UI_SHOW_SIDEBAR=false|locked',
             `SELKIES_USE_CPU=${hardwareAcceleration ? 'false' : 'true'}|locked`,
-            `SELKIES_VIDEO_BITRATE=${this.config.videoBitrate}`,
+            `SELKIES_VIDEO_BITRATE=${videoBitrate}`,
             'START_DOCKER=false',
             `SUBFOLDER=${streamPath}`,
             'TITLE=MediaDeck',
             `TZ=${this.config.timezone}`,
             ...(hardwareAcceleration
               ? [
+                  'AUTO_GPU=true',
                   `DRI_NODE=${this.config.driDevice}`,
                   `DRINODE=${this.config.driDevice}`,
                   `SELKIES_DRI_NODE=${this.config.driDevice}`,
@@ -273,6 +315,7 @@ export class DockerBrowserWorkerDriver implements BrowserWorkerDriver {
           Image: this.config.image,
           Labels: {
             'io.mediadeck.browser.kind': 'worker',
+            'io.mediadeck.gpu.mode': gpuMode,
             'io.mediadeck.profile.kind': kind,
             'io.mediadeck.session.id': sessionId,
           },
@@ -294,10 +337,11 @@ export class DockerBrowserWorkerDriver implements BrowserWorkerDriver {
         path: `/containers/${encodeURIComponent(workerId)}/start`,
       });
     } catch (error) {
-      await this.stop(workerId);
+      await this.stop(workerId).catch(() => undefined);
       throw error;
     }
 
+    this.#workerGpuModes.set(workerId, gpuMode);
     return { workerId };
   }
 
@@ -317,6 +361,11 @@ export class DockerBrowserWorkerDriver implements BrowserWorkerDriver {
     }
 
     const state = readObject(response, 'State');
+    const labels = readObject(readObject(response, 'Config') ?? {}, 'Labels');
+    const gpuMode = readString(labels, 'io.mediadeck.gpu.mode');
+    if (gpuMode === 'software' || gpuMode === 'dri') {
+      this.#workerGpuModes.set(workerId, gpuMode);
+    }
     const status = readString(state, 'Status');
     const health = readString(readObject(state ?? {}, 'Health'), 'Status');
 
@@ -361,6 +410,11 @@ export class DockerBrowserWorkerDriver implements BrowserWorkerDriver {
         cpuDelta > 0 && systemDelta > 0
           ? (cpuDelta / systemDelta) * onlineCpus * 100
           : null,
+      gpuDevice:
+        this.#workerGpuModes.get(workerId) === 'dri' ? this.config.driDevice : null,
+      gpuMode:
+        this.#workerGpuModes.get(workerId) ??
+        (this.config.gpuMode === 'software' ? 'software' : 'dri'),
       memoryBytes: readNumber(memory, 'usage') ?? 0,
       memoryLimitBytes: readNumber(memory, 'limit') ?? 0,
       networkReceiveBytes: sumNetworkBytes(networks, 'rx_bytes'),
@@ -391,6 +445,7 @@ export class DockerBrowserWorkerDriver implements BrowserWorkerDriver {
           method: 'DELETE',
           path: `/containers/${encodeURIComponent(workerId)}?force=true`,
         });
+        this.#workerGpuModes.delete(workerId);
         return;
       } catch (error) {
         if (

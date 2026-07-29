@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  administratorSettingsSchema,
   browserSessionSchema,
   browserWorkerHealthResponseSchema,
   createBrowserSessionRequestSchema,
@@ -156,6 +157,22 @@ describe('API contracts', () => {
       updateManifestSchema.parse({
         ...valid,
         image: 'ghcr.io/example/mediadeck:latest',
+      }),
+    ).toThrow();
+  });
+
+  it('defaults older administrator settings to balanced stream quality', () => {
+    expect(
+      administratorSettingsSchema.parse({
+        automaticUpdateChecks: true,
+        backupRetentionCount: 5,
+      }).streamQualityPreset,
+    ).toBe('balanced');
+    expect(() =>
+      administratorSettingsSchema.parse({
+        automaticUpdateChecks: true,
+        backupRetentionCount: 5,
+        streamQualityPreset: 'ultra',
       }),
     ).toThrow();
   });
