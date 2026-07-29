@@ -42,3 +42,12 @@ selection through Brave's per-profile managed policy on the next launch.
 Arbitrary CRX and ZIP uploads are intentionally unsupported. The bundled AV1
 compatibility shim remains an internal worker component and appears only when
 the compatibility setting is enabled.
+
+Brave launches as a chromeless application window rather than Chromium kiosk
+mode. LinuxServer's desktop layer remains responsible for filling the remote
+display, while YouTube can enter and leave its own player fullscreen without
+competing with a browser-level kiosk fullscreen state.
+
+Settings also provides independent 1080p, 720p, and 480p remote-display
+presets. New sessions default to 1080p; lower resolutions reduce the number of
+pixels the host must render and encode.

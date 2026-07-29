@@ -305,21 +305,31 @@ export const streamQualityPresetSchema = z.enum([
   'high-quality',
 ]);
 
+export const streamResolutionPresetSchema = z.enum(['data-saver', 'hd', 'full-hd']);
+
 export const administratorSettingsSchema = z.object({
   automaticUpdateChecks: z.boolean(),
   backupRetentionCount: z.number().int().min(1).max(20),
   disableAv1Playback: z.boolean().default(false),
   streamQualityPreset: streamQualityPresetSchema.default('balanced'),
+  streamResolutionPreset: streamResolutionPresetSchema.default('full-hd'),
 });
 
-export const updateAdministratorSettingsRequestSchema = administratorSettingsSchema
-  .partial()
+export const updateAdministratorSettingsRequestSchema = z
+  .object({
+    automaticUpdateChecks: z.boolean().optional(),
+    backupRetentionCount: z.number().int().min(1).max(20).optional(),
+    disableAv1Playback: z.boolean().optional(),
+    streamQualityPreset: streamQualityPresetSchema.optional(),
+    streamResolutionPreset: streamResolutionPresetSchema.optional(),
+  })
   .refine((value) => Object.keys(value).length > 0, {
     message: 'At least one setting is required',
   });
 
 export type AdministratorSettings = z.infer<typeof administratorSettingsSchema>;
 export type StreamQualityPreset = z.infer<typeof streamQualityPresetSchema>;
+export type StreamResolutionPreset = z.infer<typeof streamResolutionPresetSchema>;
 export type UpdateAdministratorSettingsRequest = z.infer<
   typeof updateAdministratorSettingsRequestSchema
 >;

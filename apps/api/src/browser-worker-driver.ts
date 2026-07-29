@@ -9,12 +9,14 @@ export type BrowserWorkerState =
 export type StartBrowserWorkerInput = {
   disableAv1Playback?: boolean;
   framerate: number;
+  height: number;
   kind: 'profile' | 'guest';
   launchUrl: string;
   policyStoragePath?: string;
   sessionId: string;
   storagePath: string;
   videoBitrate: number;
+  width: number;
 };
 
 export type BrowserWorkerMetrics = {
@@ -196,6 +198,7 @@ export class DockerBrowserWorkerDriver implements BrowserWorkerDriver {
   private async startWithGpuMode(
     {
       framerate,
+      height,
       kind,
       launchUrl,
       disableAv1Playback = false,
@@ -203,6 +206,7 @@ export class DockerBrowserWorkerDriver implements BrowserWorkerDriver {
       sessionId,
       storagePath,
       videoBitrate,
+      width,
     }: StartBrowserWorkerInput,
     gpuMode: 'software' | 'dri',
   ): Promise<{ workerId: string }> {
@@ -212,13 +216,12 @@ export class DockerBrowserWorkerDriver implements BrowserWorkerDriver {
     const sharedMemoryBytes = this.config.sharedMemoryMegabytes * 1024 * 1024;
     const hardwareAcceleration = gpuMode === 'dri';
     const braveArguments = [
-      '--kiosk',
+      `--app=${launchUrl}`,
       '--no-first-run',
       '--disable-session-crashed-bubble',
       ...(disableAv1Playback
         ? ['--load-extension=/opt/mediadeck/extensions/disable-av1']
         : []),
-      launchUrl,
     ].join(' ');
 
     await this.removeByName(containerName);
@@ -242,6 +245,8 @@ export class DockerBrowserWorkerDriver implements BrowserWorkerDriver {
             'SELKIES_FILE_TRANSFERS=download',
             `SELKIES_FRAMERATE=${framerate}`,
             'SELKIES_GAMEPAD_ENABLED=true|locked',
+            `SELKIES_MANUAL_HEIGHT=${height}`,
+            `SELKIES_MANUAL_WIDTH=${width}`,
             'SELKIES_MICROPHONE_ENABLED=false|locked',
             'SELKIES_UI_SHOW_LOGO=false|locked',
             'SELKIES_UI_SHOW_SIDEBAR=false|locked',

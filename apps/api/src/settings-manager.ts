@@ -2,6 +2,7 @@ import {
   administratorSettingsSchema,
   type AdministratorSettings,
   type StreamQualityPreset,
+  type StreamResolutionPreset,
   type UpdateAdministratorSettingsRequest,
 } from '@mediadeck/contracts';
 
@@ -17,6 +18,15 @@ export const streamQualityPresets: Record<
   balanced: { framerate: 30, videoBitrate: 6 },
   smooth: { framerate: 60, videoBitrate: 6 },
   'high-quality': { framerate: 60, videoBitrate: 12 },
+};
+
+export const streamResolutionPresets: Record<
+  StreamResolutionPreset,
+  { height: number; width: number }
+> = {
+  'data-saver': { height: 480, width: 854 },
+  hd: { height: 720, width: 1280 },
+  'full-hd': { height: 1080, width: 1920 },
 };
 
 export function inferStreamQualityPreset(
@@ -45,6 +55,7 @@ export class SettingsManager {
       backupRetentionCount: 5,
       disableAv1Playback: false,
       streamQualityPreset: this.defaultStreamQualityPreset,
+      streamResolutionPreset: 'full-hd',
     };
     if (!stored) return defaults;
 
@@ -61,12 +72,14 @@ export class SettingsManager {
     if (
       ((input.streamQualityPreset &&
         input.streamQualityPreset !== current.streamQualityPreset) ||
+        (input.streamResolutionPreset &&
+          input.streamResolutionPreset !== current.streamResolutionPreset) ||
         (input.disableAv1Playback !== undefined &&
           input.disableAv1Playback !== current.disableAv1Playback)) &&
       this.store.listActiveSessions().length > 0
     ) {
       throw new ConflictError(
-        'Stop active Brave sessions before changing browser playback settings',
+        'Stop active Brave sessions before changing browser streaming settings',
       );
     }
 

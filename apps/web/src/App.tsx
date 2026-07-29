@@ -423,6 +423,7 @@ function YouTubeView({
   const [exitRequested, setExitRequested] = useState(false);
   const [exitError, setExitError] = useState<string | null>(null);
   const [fullscreenError, setFullscreenError] = useState<string | null>(null);
+  const [keyboardError, setKeyboardError] = useState<string | null>(null);
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const stageRef = useRef<HTMLElement>(null);
   const launchInFlight = useRef(false);
@@ -632,6 +633,25 @@ function YouTubeView({
     }
   }, []);
 
+  const openMobileKeyboard = useCallback(() => {
+    try {
+      const keyboardInput = iframeRef.current?.contentDocument?.getElementById(
+        'keyboard-input-assist',
+      ) as HTMLInputElement | null;
+      if (!keyboardInput) {
+        setKeyboardError('The mobile keyboard is not ready yet. Please try again.');
+        return;
+      }
+
+      keyboardInput.removeAttribute('aria-hidden');
+      keyboardInput.value = '';
+      keyboardInput.focus({ preventScroll: true });
+      setKeyboardError(null);
+    } catch {
+      setKeyboardError('The mobile keyboard could not be opened.');
+    }
+  }, []);
+
   const profileName =
     activeProfile.kind === 'profile' ? activeProfile.profile.name : 'Guest';
   const isStarting = !session || session.status === 'starting';
@@ -701,6 +721,14 @@ function YouTubeView({
             onClick={reloadStream}
           >
             Reload
+          </button>
+          <button
+            aria-label="Open mobile keyboard"
+            className="stream-control stream-keyboard-control focusable"
+            data-focusable="true"
+            onClick={openMobileKeyboard}
+          >
+            Keyboard
           </button>
           <button
             aria-label="Enter fullscreen"
@@ -810,6 +838,11 @@ function YouTubeView({
       {fullscreenError ? (
         <div className="stream-toast stream-toast-error" role="status">
           {fullscreenError}
+        </div>
+      ) : null}
+      {keyboardError ? (
+        <div className="stream-toast stream-toast-error" role="status">
+          {keyboardError}
         </div>
       ) : null}
     </section>

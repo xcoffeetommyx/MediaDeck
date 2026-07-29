@@ -12,6 +12,7 @@ import type {
   Profile,
   RestoreBackupResponse,
   StreamQualityPreset,
+  StreamResolutionPreset,
   UnlockAdministratorResponse,
   UpdateStatus,
 } from '@mediadeck/contracts';
@@ -56,6 +57,32 @@ const streamQualityOptions: {
     id: 'high-quality',
     label: 'High quality',
     rate: '60 FPS · 12 Mbps',
+  },
+];
+
+const streamResolutionOptions: {
+  description: string;
+  dimensions: string;
+  id: StreamResolutionPreset;
+  label: string;
+}[] = [
+  {
+    description: 'Lowest host load and bandwidth use.',
+    dimensions: '854 × 480',
+    id: 'data-saver',
+    label: '480p data saver',
+  },
+  {
+    description: 'A lighter HD stream for older hardware.',
+    dimensions: '1280 × 720',
+    id: 'hd',
+    label: '720p HD',
+  },
+  {
+    description: 'The sharpest stream for large displays.',
+    dimensions: '1920 × 1080',
+    id: 'full-hd',
+    label: '1080p Full HD',
   },
 ];
 
@@ -197,6 +224,9 @@ export function SettingsView({
     resources?.capacity.activeSessions ?? diagnostics?.activeSessions ?? 0;
   const selectedQuality = streamQualityOptions.find(
     (option) => option.id === settings?.streamQualityPreset,
+  );
+  const selectedResolution = streamResolutionOptions.find(
+    (option) => option.id === settings?.streamResolutionPreset,
   );
 
   // Confirmations run the same `run` pipeline as direct actions; the dialog
@@ -691,7 +721,47 @@ export function SettingsView({
           <p className="operation-help">
             {activeSessions > 0
               ? 'Stop the active Brave session before changing quality.'
-              : 'MediaDeck uses hardware video acceleration automatically when a compatible DRI device is available, and falls back to software safely.'}
+              : 'This controls encoder frame rate and bitrate. Resolution is selected separately below.'}
+          </p>
+        </OperationCard>
+
+        <OperationCard
+          badge={selectedResolution?.label ?? '1080p Full HD'}
+          eyebrow="Display"
+          title="Stream resolution"
+          wide
+        >
+          <div className="quality-preset-grid resolution-preset-grid">
+            {streamResolutionOptions.map((option) => (
+              <button
+                aria-pressed={settings?.streamResolutionPreset === option.id}
+                className="quality-preset focusable"
+                data-focusable="true"
+                disabled={
+                  busy !== null || !settings || controlsLocked || activeSessions > 0
+                }
+                key={option.id}
+                onClick={() =>
+                  void run('stream-resolution', async () => {
+                    await requestJson('/api/v1/settings', {
+                      body: JSON.stringify({ streamResolutionPreset: option.id }),
+                      headers: { 'Content-Type': 'application/json' },
+                      method: 'PATCH',
+                    });
+                    return `${option.label} resolution saved. New Brave sessions will use it.`;
+                  })
+                }
+              >
+                <strong>{option.label}</strong>
+                <span>{option.dimensions}</span>
+                <small>{option.description}</small>
+              </button>
+            ))}
+          </div>
+          <p className="operation-help">
+            {activeSessions > 0
+              ? 'Stop the active Brave session before changing resolution.'
+              : 'MediaDeck locks the remote desktop to this size. Your local browser scales it to fit the viewer.'}
           </p>
         </OperationCard>
 

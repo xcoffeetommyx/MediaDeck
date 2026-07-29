@@ -188,6 +188,25 @@ administrator settings have been saved. Later changes are made in Settings and
 apply to newly created Brave sessions. MediaDeck requires active sessions to
 be stopped before changing the preset.
 
+Stream resolution is configured separately in Settings:
+
+| Preset          | Remote desktop size |
+| --------------- | ------------------- |
+| 480p data saver | 854 × 480           |
+| 720p HD         | 1280 × 720          |
+| 1080p Full HD   | 1920 × 1080         |
+
+New installations default to 1080p. MediaDeck passes the selected dimensions
+to Selkies as a locked manual resolution, and the client scales that remote
+desktop to fit the local viewer. Existing settings automatically gain the
+1080p default. Resolution changes apply to newly created Brave sessions and
+are unavailable while a session is active.
+
+On touch devices, the MediaDeck stream toolbar includes a **Keyboard** control.
+It focuses Selkies' keyboard-assist input from the same user gesture, which
+opens the device's native on-screen keyboard while keeping input directed to
+the currently focused field inside Brave.
+
 For production session workers, `BROWSER_WORKER_GPU_MODE=auto` attempts the
 configured Linux Intel/AMD DRI render node and falls back to software only when
 the device is absent or inaccessible. Use `software` to force CPU encoding or

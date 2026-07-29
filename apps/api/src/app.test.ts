@@ -365,6 +365,7 @@ describe('MediaDeck API', () => {
     expect(initial.json()).toMatchObject({
       disableAv1Playback: false,
       streamQualityPreset: 'high-quality',
+      streamResolutionPreset: 'full-hd',
     });
 
     const updated = await app.inject({
@@ -379,6 +380,12 @@ describe('MediaDeck API', () => {
       url: '/api/v1/settings',
     });
     expect(compatibility.json()).toMatchObject({ disableAv1Playback: true });
+    const resolution = await app.inject({
+      method: 'PATCH',
+      payload: { streamResolutionPreset: 'hd' },
+      url: '/api/v1/settings',
+    });
+    expect(resolution.json()).toMatchObject({ streamResolutionPreset: 'hd' });
 
     const launch = await app.inject({
       method: 'POST',
@@ -393,7 +400,9 @@ describe('MediaDeck API', () => {
     expect(driver.starts.at(-1)).toMatchObject({
       disableAv1Playback: true,
       framerate: 30,
+      height: 720,
       videoBitrate: 6,
+      width: 1280,
     });
 
     const blocked = await app.inject({
@@ -404,7 +413,7 @@ describe('MediaDeck API', () => {
     expect(blocked.statusCode).toBe(409);
     expect(blocked.json()).toMatchObject({
       error: 'conflict',
-      message: 'Stop active Brave sessions before changing browser playback settings',
+      message: 'Stop active Brave sessions before changing browser streaming settings',
     });
 
     await app.close();

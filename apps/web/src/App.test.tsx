@@ -62,6 +62,7 @@ function mockApi(
     backupRetentionCount: 5,
     disableAv1Playback: false,
     streamQualityPreset: 'balanced',
+    streamResolutionPreset: 'full-hd',
   };
   const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
     const url = requestUrl(input);
@@ -312,7 +313,7 @@ describe('MediaDeck application shell', () => {
     await user.click(screen.getByRole('button', { name: /Settings/ }));
     await user.click(
       await screen.findByRole('button', {
-        name: /Data saver/i,
+        name: /^Data saver/i,
       }),
     );
 
@@ -327,6 +328,30 @@ describe('MediaDeck application shell', () => {
     expect(
       await screen.findByText(/Data saver stream quality saved/i),
     ).toBeInTheDocument();
+  });
+
+  it('changes the stream resolution preset from settings', async () => {
+    const fetchMock = mockApi();
+    const user = userEvent.setup();
+    render(<App />);
+
+    await user.click(await screen.findByRole('button', { name: /Tommy/ }));
+    await user.click(screen.getByRole('button', { name: /Settings/ }));
+    await user.click(
+      await screen.findByRole('button', {
+        name: /720p HD/i,
+      }),
+    );
+
+    expect(
+      fetchMock.mock.calls.some(
+        ([input, init]) =>
+          requestUrl(input).endsWith('/api/v1/settings') &&
+          init?.method === 'PATCH' &&
+          init.body === JSON.stringify({ streamResolutionPreset: 'hd' }),
+      ),
+    ).toBe(true);
+    expect(await screen.findByText(/720p HD resolution saved/i)).toBeInTheDocument();
   });
 
   it('adds a trusted Chrome Web Store extension to the selected profile', async () => {
@@ -497,16 +522,30 @@ describe('MediaDeck application shell', () => {
     await user.click(await screen.findByRole('button', { name: /Tommy/ }));
     await user.click(screen.getByRole('button', { name: 'Launch YouTube' }));
 
-    expect(await screen.findByTitle('YouTube Brave stream for Tommy')).toHaveAttribute(
-      'src',
-      `${runningSession.streamUrl}?viewer=0`,
+    const streamFrame = await screen.findByTitle<HTMLIFrameElement>(
+      'YouTube Brave stream for Tommy',
     );
+    expect(streamFrame).toHaveAttribute('src', `${runningSession.streamUrl}?viewer=0`);
     const launchCall = fetchMock.mock.calls.find(([input]) =>
       requestUrl(input).endsWith('/api/v1/applications/youtube/launch'),
     );
     expect(launchCall?.[1]?.body).toEqual(
       expect.stringContaining(`"profileId":"${profile.id}"`),
     );
+
+    const frameDocument = streamFrame.contentDocument!;
+    frameDocument.open();
+    frameDocument.write('<!doctype html><html><body></body></html>');
+    frameDocument.close();
+    const keyboardInput = frameDocument.createElement('input');
+    keyboardInput.id = 'keyboard-input-assist';
+    keyboardInput.setAttribute('aria-hidden', 'true');
+    frameDocument.body.append(keyboardInput);
+    fireEvent.click(
+      screen.getByRole('button', { hidden: true, name: 'Open mobile keyboard' }),
+    );
+    expect(frameDocument.activeElement).toBe(keyboardInput);
+    expect(keyboardInput).not.toHaveAttribute('aria-hidden');
 
     await user.click(screen.getByRole('button', { name: /MediaDeck/ }));
     expect(

@@ -134,11 +134,13 @@ it('pulls a missing digest-pinned worker image once for concurrent starts', asyn
     ].map((sessionId) =>
       driver.start({
         framerate: 30,
+        height: 1080,
         kind: 'guest',
         launchUrl: 'https://www.youtube.com/',
         sessionId,
         storagePath: `runtime/guests/${sessionId}/brave-origin`,
         videoBitrate: 6,
+        width: 1920,
       }),
     ),
   );
@@ -179,11 +181,13 @@ it('reports an error embedded in a Docker image pull stream', async () => {
   await expect(
     driver.start({
       framerate: 30,
+      height: 1080,
       kind: 'guest',
       launchUrl: 'https://www.youtube.com/',
       sessionId: '2abfc294-b100-48e1-93ad-bd34718e9a97',
       storagePath: 'runtime/guests/2abfc294-b100-48e1-93ad-bd34718e9a97/brave-origin',
       videoBitrate: 6,
+      width: 1920,
     }),
   ).rejects.toThrow(
     'Docker Engine could not pull the browser worker image: registry denied the pull',
@@ -279,6 +283,7 @@ it('uses DRI automatically and falls back to software when the device is unavail
     driver.start({
       disableAv1Playback: true,
       framerate: 30,
+      height: 720,
       kind: 'guest',
       launchUrl: 'https://www.youtube.com/',
       policyStoragePath:
@@ -286,6 +291,7 @@ it('uses DRI automatically and falls back to software when the device is unavail
       sessionId: '2abfc294-b100-48e1-93ad-bd34718e9a97',
       storagePath: 'runtime/guests/2abfc294-b100-48e1-93ad-bd34718e9a97/brave-origin',
       videoBitrate: 6,
+      width: 1280,
     }),
   ).resolves.toEqual({ workerId: 'software-worker' });
 
@@ -310,9 +316,11 @@ it('uses DRI automatically and falls back to software when the device is unavail
   expect(hardware.Env).toContain('LIBVA_DRIVER_NAME=i965');
   expect(hardware.Env).toContain('LIBVA_DRIVERS_PATH=/usr/lib/x86_64-linux-gnu/dri');
   expect(hardware.Env).toContain(
-    'BRAVE_CLI=--kiosk --no-first-run --disable-session-crashed-bubble --load-extension=/opt/mediadeck/extensions/disable-av1 https://www.youtube.com/',
+    'BRAVE_CLI=--app=https://www.youtube.com/ --no-first-run --disable-session-crashed-bubble --load-extension=/opt/mediadeck/extensions/disable-av1',
   );
   expect(hardware.Env.some((value) => value.startsWith('FIREFOX_CLI='))).toBe(false);
+  expect(hardware.Env).toContain('SELKIES_MANUAL_HEIGHT=720');
+  expect(hardware.Env).toContain('SELKIES_MANUAL_WIDTH=1280');
   expect(hardware.Env).toContain('SELKIES_USE_CPU=false|locked');
   expect(hardware.HostConfig.Devices).toHaveLength(1);
   expect(hardware.HostConfig.Mounts).toContainEqual(

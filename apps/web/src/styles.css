@@ -1033,6 +1033,10 @@ code {
   gap: 0.7rem;
 }
 
+.resolution-preset-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
 .quality-preset {
   display: grid;
   min-height: 8.5rem;
@@ -1640,6 +1644,12 @@ code {
   background: #020306;
 }
 
+.youtube-view:fullscreen {
+  width: 100vw;
+  height: 100vh;
+  min-height: 0;
+}
+
 .stream-frame {
   display: block;
   width: 100%;
@@ -1647,6 +1657,10 @@ code {
   margin-top: 4.25rem;
   border: 0;
   background: #020306;
+}
+
+.youtube-view:fullscreen .stream-frame {
+  height: calc(100vh - 4.25rem);
 }
 
 .stream-toolbar {
@@ -1718,6 +1732,16 @@ code {
   justify-self: end;
   gap: 0.5rem;
   pointer-events: none;
+}
+
+.stream-keyboard-control {
+  display: none;
+}
+
+@media (hover: none), (pointer: coarse) {
+  .stream-keyboard-control {
+    display: inline-flex;
+  }
 }
 
 .stream-state-layer {
@@ -1914,6 +1938,10 @@ code {
 
   .quality-preset-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .resolution-preset-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 }
 

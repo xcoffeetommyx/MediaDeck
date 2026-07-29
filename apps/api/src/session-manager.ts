@@ -30,6 +30,7 @@ type SessionManagerOptions = {
   idleTimeoutSeconds: number;
   maxSessions: number;
   getStreamQuality?: () => StreamQuality;
+  getStreamResolution?: () => StreamResolution;
   getDisableAv1Playback?: () => boolean;
   now?: () => Date;
   onMonitorError?: (error: unknown) => void;
@@ -44,6 +45,11 @@ type SessionManagerOptions = {
 type StreamQuality = {
   framerate: number;
   videoBitrate: number;
+};
+
+type StreamResolution = {
+  height: number;
+  width: number;
 };
 
 type StartBrowserSessionInput =
@@ -87,6 +93,7 @@ export class SessionManager {
   readonly #applications: ApplicationRegistry;
   readonly #healthIntervalMilliseconds: number;
   readonly #getStreamQuality: () => StreamQuality;
+  readonly #getStreamResolution: () => StreamResolution;
   readonly #getDisableAv1Playback: () => boolean;
   readonly #idleTimeoutMilliseconds: number;
   readonly #maxSessions: number;
@@ -107,6 +114,7 @@ export class SessionManager {
     idleTimeoutSeconds,
     maxSessions,
     getStreamQuality,
+    getStreamResolution = () => ({ height: 1080, width: 1920 }),
     getDisableAv1Playback = () => false,
     now = () => new Date(),
     onMonitorError = () => undefined,
@@ -125,6 +133,7 @@ export class SessionManager {
         framerate: workerConfig.framerate,
         videoBitrate: workerConfig.videoBitrate,
       }));
+    this.#getStreamResolution = getStreamResolution;
     this.#getDisableAv1Playback = getDisableAv1Playback;
     this.#idleTimeoutMilliseconds = idleTimeoutSeconds * 1000;
     this.#maxSessions = maxSessions;
@@ -609,15 +618,18 @@ export class SessionManager {
         ? await this.#prepareProfileExtensions(session.profileId)
         : undefined;
     const streamQuality = this.#getStreamQuality();
+    const streamResolution = this.#getStreamResolution();
     const { workerId } = await this.#workerDriver.start({
       disableAv1Playback: this.#getDisableAv1Playback(),
       framerate: streamQuality.framerate,
+      height: streamResolution.height,
       kind: session.kind,
       launchUrl: this.#applications.require(session.applicationId).launchUrl,
       ...(policyStoragePath ? { policyStoragePath } : {}),
       sessionId: session.id,
       storagePath: session.storagePath,
       videoBitrate: streamQuality.videoBitrate,
+      width: streamResolution.width,
     });
     const timestamp = this.#now().toISOString();
     try {

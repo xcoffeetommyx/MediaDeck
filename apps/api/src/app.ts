@@ -37,6 +37,7 @@ import {
   inferStreamQualityPreset,
   SettingsManager,
   streamQualityPresets,
+  streamResolutionPresets,
 } from './settings-manager.js';
 import { ensureStorageLayout } from './storage.js';
 import { MediaDeckStore } from './store.js';
@@ -130,6 +131,8 @@ export async function buildApplication({
       idleTimeoutSeconds: config.browserWorker.idleTimeoutSeconds,
       maxSessions: config.browserWorker.maxSessions,
       getStreamQuality: () => streamQualityPresets[settings.get().streamQualityPreset],
+      getStreamResolution: () =>
+        streamResolutionPresets[settings.get().streamResolutionPreset],
       getDisableAv1Playback: () => settings.get().disableAv1Playback,
       onMonitorError: (error) => {
         app.log.error(error, 'Browser session monitor failed');

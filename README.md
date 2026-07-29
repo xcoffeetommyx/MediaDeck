@@ -43,6 +43,7 @@ Stages 1 through 8 establish:
 - A Compose-built, digest-pinned Brave Origin worker image
 - Automatic Intel/AMD DRI hardware encoding with safe software fallback
 - Four administrator-selectable 30/60 FPS stream-quality presets
+- Administrator-selectable 1080p, 720p, and 480p session resolutions
 - A profile picker backed by the persistent profile API
 - A temporary Guest path and in-app profile creation
 - A controller-first home screen with operational Settings and Updates
@@ -51,7 +52,8 @@ Stages 1 through 8 establish:
 - Automated interaction and accessibility checks
 - A first-class YouTube application definition
 - Opaque per-session HTTP and WebSocket stream routing
-- A kiosk-mode Brave Origin viewer with video, audio, reload, and fullscreen controls
+- A chromeless Brave Origin app viewer with video, audio, reload, and fullscreen controls
+- A touch-only native mobile keyboard control for remote text fields
 - Heartbeat, resume, recovery, and explicit return behavior
 - Persistent profile sessions and temporary Guest cleanup through the visible UI
 - Optional administrator PIN protection with expiring unlock sessions
